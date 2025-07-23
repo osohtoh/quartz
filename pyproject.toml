@@ -1,0 +1,19 @@
+[project]
+name = "quartz"
+version = "0.0.1"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Bernard Kamiński"}
+]
+requires-python = ">=3.13"
+dependencies = [
+    "griddataformats>=1.0.2",
+    "numpy>=2.3.1",
+    "qcelemental>=0.29.0",
+    "rdkit>=2025.3.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
