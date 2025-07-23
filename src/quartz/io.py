@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import glob
 from typing import Any
 from quartz.xtbinterface import get_props
-from quartz.utils import xyz_to_mol, get_smiles, get_mol
+from quartz.utils import xyz_to_mol, get_smiles, get_mol, optimize
 import os
 
 import numpy as npt
@@ -73,3 +73,5 @@ def load_and_process(
                 )
             )
         return output
+
+    raise Exception("Failed to load the data. Have you passed a path or SMILES?")

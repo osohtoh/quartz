@@ -45,6 +45,8 @@ def get_smiles(path: str) -> str:
         case "pdb":
             # NOTE - we don't need Hs in the SMILES
             return MolToSmiles(MolFromPDBFile(path))
+        case _:
+            raise Exception("Invalid file type. Use xyz or pdb.")
 
 
 def pdb_to_xyz(file: str) -> str:

@@ -78,6 +78,9 @@ def create_grid(
             np.round(xyzs[1][0] - padding, 1),
             np.round(xyzs[2][0] - padding, 1),
         )
+        xs = [xyzs[0][0], xyzs[0][1]]
+        ys = [xyzs[1][0], xyzs[1][1]]
+        zs = [xyzs[2][0], xyzs[2][1]]
 
     # TODO - padding per axis
     x_len = np.ceil(x_dist + 2.0 * padding)
@@ -102,12 +105,6 @@ def create_grid(
     # NOTE - we assume that all supplied MoleculeData have same amount of props
     prop_count = len(mol_data[0].res.keys())
 
-    if xs is None:
-        xs = [xyzs[0][0], xyzs[0][1]]
-    if ys is None:
-        ys = [xyzs[1][0], xyzs[1][1]]
-    if zs is None:
-        zs = [xyzs[2][0], xyzs[2][1]]
 
     grid_props = [
         [
@@ -124,6 +121,7 @@ def create_grid(
         ],
         origin,
         size,
+        padding
     ]
 
     prop_map_: list[tuple[int, str]] = list(enumerate(props))
