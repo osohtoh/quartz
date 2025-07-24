@@ -9,8 +9,19 @@ def get_grid_size_for_dataset(
     mol_data: list[MoleculeData], size: float, padding: float
 ) -> tuple[list[list[float]], float, float, float]:
     """
-    Input: path to files with molecules
-    Output: origin point in xyz space, grid dist
+    Compute the bounding box and dimensions of a 3D grid that encompasses a dataset of molecules.
+
+    Parameters:
+        mol_data (list[MoleculeData]): List of MoleculeData objects, each containing atomic coordinates.
+        size (float): The voxel size for the grid.
+        padding (float): Padding to add to each dimension of the grid (in the same units as coordinates).
+
+    Returns:
+        tuple[list[list[float]], float, float, float]:
+            - xyzs: List of [min, max] pairs for x, y, and z dimensions, representing the bounding box.
+            - x_dist: Distance (float) covered by the grid in the x dimension.
+            - y_dist: Distance (float) covered by the grid in the y dimension.
+            - z_dist: Distance (float) covered by the grid in the z dimension.
     """
     xyzs: list[list[float]] = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
     for i, molecule in enumerate(mol_data):
@@ -51,7 +62,20 @@ def create_grid(
     size: float = 1.0,
     padding: float = 5.0,
     threshold: float = 0.01,
-):
+) -> list[Grid]:
+    """
+    Creates a grid for a given list of molecules and properties.
+
+    Args:
+        mol_data (list[MoleculeData]): List of molecules to create the grid for.
+        props (list[str]): List of properties to include in the grid.
+        size (float, optional): Voxel size. Defaults to 1.0.
+        padding (float, optional): Padding around the grid. Defaults to 5.0.
+        threshold (float, optional): Threshold for property values. Defaults to 0.01.
+
+    Returns:
+        list[Grid]: List of grids, one for each molecule.
+    """
     xs, ys, zs = None, None, None
     if len(mol_data) == 1:
         xs, ys, zs = (

@@ -37,8 +37,24 @@ class Grid:
     dxGrid: OpenDX.field | None = None
 
 def load_and_process(
-    smiles: list[str] | None = None, input_dir: str | None = None
+    smiles: list[str] | None = None, input_dir: str | None = None, size: float = 1.0
 ) -> list[MoleculeData]:
+    """
+    Load and process molecules from either a list of SMILES strings or a directory of
+    xyz and/or pdb files. The files are expected to have hydrogens and be optimized.
+    For charged molecules it is recommended to use pdb files.
+
+    Args:
+        smiles: List of SMILES strings
+        input_dir: Path to directory of xyz/pdb files
+
+    Returns:
+        list[MoleculeData]: A list of MoleculeData objects containing the loaded
+            molecules with their properties calculated by the xTB interface.
+
+    Raises:
+        Exception: If neither a list of SMILES strings nor a directory path is provided
+    """
     output: list[MoleculeData] = []
 
     if not smiles and not input_dir:
@@ -49,7 +65,7 @@ def load_and_process(
         paths = glob.glob(f"{input_dir}/*.*")
         for path in paths:
             mol: Molecule = get_mol(path)
-            res = get_props(mol)
+            res = get_props(path, size)
             output.append(
                 MoleculeData(
                     mol.atomic_numbers,

@@ -24,6 +24,7 @@ def optimize(smiles: str) -> str:
 
 def xyz_to_mol(file: str, chrg: int = 0) -> Mol:
     mol = None
+    # NOTE - This is a bit of a hack, also needs proper charge determination
     if file.find("/") != -1:
         if file[-3:] == "xyz":
             mol = MolFromXYZFile(file)

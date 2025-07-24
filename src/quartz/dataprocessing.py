@@ -8,6 +8,9 @@ from quartz.io import Grid, MoleculeData
 
 # NOTE - this should work with lists of MoleculeData imo
 def assign_props(mol_data: MoleculeData, props: list[str]) -> None:
+    """
+    Assign properties to the associated RDKit molecule. Modifies the Mol object accessed by `mol_data.rdmol`.
+    """
     mol: Mol = mol_data.rdmol
     # TODO - add assigning all available props
     for key in props:
@@ -17,10 +20,9 @@ def assign_props(mol_data: MoleculeData, props: list[str]) -> None:
     mol_data.rdmol = mol
 
 
-def calculate_overlap(grids: list[Grid], props: list[str]):
+def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
     prop_overlap: dict[str, float] = {}
 
-    # TODO - values should (?) be normalized between 0 and 1
     for key in props:
         np_grids = [grid.npGrid[key] for grid in grids]
         combs = combinations(np_grids, 2)
