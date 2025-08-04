@@ -4,6 +4,7 @@ from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
 
 from quartz.io import Grid, MoleculeData
 
+# NOTE - docstrings need some more love in general
 
 def get_grid_size_for_dataset(
     mol_data: list[MoleculeData], size: float, padding: float
@@ -55,6 +56,7 @@ def get_grid_size_for_dataset(
 
 
 # TODO - this whole thing needs refactoring
+# TODO - instead of 0.0 use None, maybe saves memory
 # TODO - threshold per prop
 def create_grid(
     mol_data: list[MoleculeData],
