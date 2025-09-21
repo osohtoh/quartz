@@ -1,40 +1,12 @@
-from dataclasses import dataclass
 import glob
-from typing import Any
 from quartz.xtbinterface import get_props
 from quartz.utils import xyz_to_mol, get_smiles, get_mol, optimize
+from quartz.data import MoleculeData
 import os
 
-import numpy as npt
-import numpy.typing as npt
-import qcelemental.models.types as qcelt
 from qcelemental.models.molecule import Molecule
 import qcelemental as qcel
-from gridData import OpenDX
-from rdkit.Chem.rdchem import Mol
-from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D_
 
-
-@dataclass
-class MoleculeData:
-    atomic_numbers: qcelt.Array
-    coordinates: qcelt.Array
-    res: dict[str, Any]
-    smiles: str
-    rdmol: Mol
-    filename: str | None
-
-
-@dataclass
-class Grid:
-    npGrid: dict[str, npt.NDArray]
-    rdGrid: UniformGrid3D_
-    prop_map: list[tuple[int, str]]
-    points: list[Point3D]
-    point_idxs: list[tuple[int]]
-    grid_props: list[list[float]]
-    mol_data: MoleculeData
-    dxGrid: OpenDX.field | None = None
 
 def load_and_process(
     smiles: list[str] | None = None, input_dir: str | None = None, size: float = 1.0
