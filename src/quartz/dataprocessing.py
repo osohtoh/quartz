@@ -1,9 +1,10 @@
 from itertools import combinations
+import os
 
 import numpy as np
 from rdkit.Chem.rdchem import Mol
 
-from quartz.io import Grid, MoleculeData
+from quartz.data import Grid, MoleculeData
 
 
 # NOTE - this should work with lists of MoleculeData imo
@@ -18,6 +19,86 @@ def assign_props(mol_data: MoleculeData, props: list[str]) -> None:
         for idx, val in enumerate(mol_data.res[key]):
             mol.GetAtomWithIdx(idx).SetProp(key, str(val))
     mol_data.rdmol = mol
+
+
+def extract_props(basename: str):
+    # .out files have properties per atom
+    # From main basename.properties.out:
+    # - coordination number covCN (?)
+    # - dispersion coeff C6
+    # - polarizability α
+    # [     #   Z          covCN         q      C6AA      α(0)]
+    # - Wiberg bond orders (?), also from .wbo file
+    # From basename_fod.out:
+    # - fractional occupation density per atom per shell
+    # [ Loewdin FODpop      n(s)   n(p)   n(d)]
+    # From basename_fukui.out:
+    # - Fukui functions per atom (f+, f-, f0)
+    # [     #        f(+)     f(-)     f(0)]
+    # From basename.charges:
+    # - partial charge q
+
+    temp_dir = "temp_" + basename
+    props = {
+        "coordination number": [],
+        "dispersion coef": [],
+        "polarizibility": [],
+        "charges": [],
+        "fullpop": [],
+        "fod_s": [],
+        "fod_p": [],
+        "fod_d": [],
+        "fukui+": [],
+        "fukui-": [],
+        "fukui0": [],
+    }
+
+    # Process .out file
+    with open(os.path.join(temp_dir, f"{basename}.out"), "r") as f:
+        lines = f.readlines()
+        start_idx = (
+            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
+        )
+        end_idx = lines.index("\n", start_idx)
+        for line in lines[start_idx:end_idx]:
+            parts = line.split()
+            props["coordination number"].append(float(parts[3]))
+            props["dispersion coef"].append(float(parts[5]))
+            props["polarizibility"].append(float(parts[6]))
+
+    # Process .charges file
+    with open(os.path.join(temp_dir, f"{basename}.charges"), "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            props["charges"].append(float(line))
+
+    # Process _fod.out file
+    with open(os.path.join(temp_dir, f"{basename}_fod.out"), "r") as f:
+        lines = f.readlines()
+        start_idx = lines.index(" Loewdin FODpop      n(s)   n(p)   n(d)\n") + 1
+        end_idx = lines.index("\n", start_idx)
+        for line in lines[start_idx:end_idx]:
+            parts = line.split()
+            props["fullpop"].append(float(parts[2]))
+            # You could do falloffs specific to type of orbital (probably not needed, but cool idea nonetheless)
+            props["fod_s"].append(float(parts[3]))
+            props["fod_p"].append(float(parts[4]))
+            props["fod_d"].append(float(parts[5]))
+
+    # Process _fukui.out file
+    with open(os.path.join(temp_dir, f"{basename}_fukui.out"), "r") as f:
+        lines = f.readlines()
+        start_idx = lines.index("     #        f(+)     f(-)     f(0)\n") + 1
+        end_idx = lines.index(
+            "           -------------------------------------------------", start_idx
+        )
+        for line in lines[start_idx:end_idx]:
+            parts = line.split()
+            props["fukui+"].append(float(parts[2]))
+            props["fukui-"].append(float(parts[3]))
+            props["fukui0"].append(float(parts[4]))
+
+    return props
 
 
 def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
