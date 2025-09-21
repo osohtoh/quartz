@@ -5,6 +5,7 @@ from pathlib import Path
 from rdkit.Chem.Descriptors import NumRadicalElectrons
 from rdkit.Chem.rdmolops import GetFormalCharge
 
+from quartz.dataprocessing import extract_props
 from quartz.utils import xyz_to_mol
 
 
@@ -32,6 +33,9 @@ $write
    mulliken=true
    orbital energies=true
    wiberg=true
+   output file=properties.out
+   json=true
+   esp=true
 $end
         """
         with open(os.path.join(input_path, "input.inp"), "w") as f:
@@ -47,18 +51,18 @@ def get_props(input_geo: str, size: float = 1.0):
     )
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
-    # TODO - if temp_dir exists load the results instead of recalculating
-    # Although do we really want that?
 
     # Load molecule
     rdmol = xyz_to_mol(input_geo)
 
-    # Determine charge
+    # Determine charge and unpaired electrons
     charge = GetFormalCharge(rdmol)
     uhf = NumRadicalElectrons(rdmol)
 
     # Create input file if it doesn't exist
     generate_input(temp_dir, size, charge, uhf)
+
+    basename = os.path.basename(input_geo)
 
     # Run XTB
     result = subprocess.run(
@@ -66,17 +70,55 @@ def get_props(input_geo: str, size: float = 1.0):
             "xtb",
             "-I",
             "input.inp",
+            "--molden",
             "--namespace",
             Path(input_geo).stem,
-            os.path.relpath(f"../{os.path.basename(input_geo)}"),
+            os.path.relpath(f"../{basename}"),
         ],
         capture_output=True,
         cwd=temp_dir,
     )
 
-    if result.returncode:
+    result_fuk = subprocess.run(
+        [
+            "xtb",
+            "--vfukui",
+            "--namespace",
+            Path(input_geo).stem,
+            os.path.relpath(f"../{basename}"),
+        ],
+        capture_output=True,
+        cwd=temp_dir,
+    )
+
+    result_fod = subprocess.run(
+        [
+            "xtb",
+            "--fod",
+            "--etemp",
+            "5000", # as per docs, might need adjusting
+            "--namespace",
+            Path(input_geo).stem,
+            os.path.relpath(f"../{basename}"),
+        ],
+        capture_output=True,
+        cwd=temp_dir,
+    )
+
+    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}.out"), "wb") as f:
+        f.write(result.stdout)
+
+    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}_fukui.out"), "wb") as f:
+        f.write(result_fuk.stdout)
+
+    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}_fod.out"), "wb") as f:
+        f.write(result_fod.stdout)
+
+    if result.returncode or result_fuk.returncode or result_fod.returncode:
         print(result.stdout)
         result.check_returncode()
     # Parse output
+
+    extract_props(basename)
 
     return {}

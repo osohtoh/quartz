@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "cclib>=1.8.1",
     "griddataformats>=1.0.2",
     "numpy>=2.3.1",
     "pint>=0.24.4",
