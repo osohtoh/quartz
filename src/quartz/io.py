@@ -1,8 +1,7 @@
-import glob
 from quartz.xtbinterface import get_props
 from quartz.utils import xyz_to_mol, get_smiles, get_mol, optimize
 from quartz.data import MoleculeData
-import os
+from pathlib import Path
 
 from qcelemental.models.molecule import Molecule
 import qcelemental as qcel
@@ -34,18 +33,19 @@ def load_and_process(
 
     # Path input expected to have hydrogens and be optimized
     if input_dir:
-        paths = glob.glob(f"{input_dir}/*.*")
+        input_path = Path(input_dir)
+        paths: list[Path] = list(input_path.glob("*.*"))
         for path in paths:
-            mol: Molecule = get_mol(path)
-            res = get_props(path, size)
+            mol: Molecule = get_mol(str(path))
+            res = get_props(str(path), size)
             output.append(
                 MoleculeData(
                     mol.atomic_numbers,
                     mol.geometry,
                     res,
-                    get_smiles(path),
-                    xyz_to_mol(path),
-                    os.path.basename(path),
+                    get_smiles(str(path)),
+                    xyz_to_mol(str(path)),
+                    path.name,
                 )
             )
         return output

@@ -1,16 +1,17 @@
-import os
 import subprocess
 from pathlib import Path
 
 from rdkit.Chem.Descriptors import NumRadicalElectrons
 from rdkit.Chem.rdmolops import GetFormalCharge
+from rdkit.Chem.rdmolfiles import MolFromPDBFile
 
 from quartz.dataprocessing import extract_props
 from quartz.utils import xyz_to_mol
 
 
-def generate_input(input_path: str, size: float, charge: int, uhf: int):
-    if not os.path.exists(os.path.join(input_path, "input.inp")):
+def generate_input(input_path: Path, size: float, charge: int, uhf: int):
+    input_file = Path(input_path) / "input.inp"
+    if not input_file.exists():
         input = f"""$chrg {charge}
 $spin {uhf}
 $gfn
@@ -38,22 +39,28 @@ $write
    esp=true
 $end
         """
-        with open(os.path.join(input_path, "input.inp"), "w") as f:
-            f.write(input)
+        input_file.write_text(input)
 
 
 # NOTE maybe change to pathlib fully, low pri
 def get_props(input_geo: str, size: float = 1.0):
     """ """
+    cwd = Path.cwd()
     # Create temp directory
-    temp_dir = os.path.abspath(
-        os.path.join(os.path.dirname(input_geo), f"temp_{Path(input_geo).stem}")
-    )
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
+    input_path = Path(input_geo)
+    temp_dir = input_path.parent / f"temp_{input_path.stem}"
+    temp_dir = temp_dir.resolve()  # absolute path
+
+    try:
+        temp_dir.mkdir(exist_ok=True)  # More robust than os.mkdir()
+    except PermissionError as e:
+        raise PermissionError(f"Cannot create {temp_dir}: {e}")
 
     # Load molecule
-    rdmol = xyz_to_mol(input_geo)
+    try:
+        rdmol = MolFromPDBFile(input_geo, removeHs=False)
+    except Exception:
+        rdmol = xyz_to_mol(input_geo)
 
     # Determine charge and unpaired electrons
     charge = GetFormalCharge(rdmol)
@@ -62,7 +69,9 @@ def get_props(input_geo: str, size: float = 1.0):
     # Create input file if it doesn't exist
     generate_input(temp_dir, size, charge, uhf)
 
-    basename = os.path.basename(input_geo)
+    file = input_path.name
+
+    relative_parent = Path("..") / file
 
     # Run XTB
     result = subprocess.run(
@@ -73,7 +82,7 @@ def get_props(input_geo: str, size: float = 1.0):
             "--molden",
             "--namespace",
             Path(input_geo).stem,
-            os.path.relpath(f"../{basename}"),
+            str(relative_parent),
         ],
         capture_output=True,
         cwd=temp_dir,
@@ -85,7 +94,7 @@ def get_props(input_geo: str, size: float = 1.0):
             "--vfukui",
             "--namespace",
             Path(input_geo).stem,
-            os.path.relpath(f"../{basename}"),
+            str(relative_parent),
         ],
         capture_output=True,
         cwd=temp_dir,
@@ -96,29 +105,22 @@ def get_props(input_geo: str, size: float = 1.0):
             "xtb",
             "--fod",
             "--etemp",
-            "5000", # as per docs, might need adjusting
+            "5000",  # as per docs, might need adjusting
             "--namespace",
             Path(input_geo).stem,
-            os.path.relpath(f"../{basename}"),
+            str(relative_parent),
         ],
         capture_output=True,
         cwd=temp_dir,
     )
 
-    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}.out"), "wb") as f:
-        f.write(result.stdout)
-
-    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}_fukui.out"), "wb") as f:
-        f.write(result_fuk.stdout)
-
-    with open(os.path.join(temp_dir, f"{Path(input_geo).stem}_fod.out"), "wb") as f:
-        f.write(result_fod.stdout)
+    (temp_dir / f"{input_path.stem}.out").write_bytes(result.stdout)
+    (temp_dir / f"{input_path.stem}_fukui.out").write_bytes(result_fuk.stdout)
+    (temp_dir / f"{input_path.stem}_fod.out").write_bytes(result_fod.stdout)
 
     if result.returncode or result_fuk.returncode or result_fod.returncode:
         print(result.stdout)
-        result.check_returncode()
+        raise Exception("xTB calculation failed.")
+        
     # Parse output
-
-    extract_props(basename)
-
-    return {}
+    return extract_props(temp_dir, input_path.stem)

@@ -1,5 +1,5 @@
 from itertools import combinations
-import os
+from pathlib import Path
 
 import numpy as np
 from rdkit.Chem.rdchem import Mol
@@ -21,7 +21,7 @@ def assign_props(mol_data: MoleculeData, props: list[str]) -> None:
     mol_data.rdmol = mol
 
 
-def extract_props(basename: str):
+def extract_props(temp_dir: Path, basename: str):
     # .out files have properties per atom
     # From main basename.properties.out:
     # - coordination number covCN (?)
@@ -37,8 +37,8 @@ def extract_props(basename: str):
     # [     #        f(+)     f(-)     f(0)]
     # From basename.charges:
     # - partial charge q
+    
 
-    temp_dir = "temp_" + basename
     props = {
         "coordination number": [],
         "dispersion coef": [],
@@ -52,9 +52,10 @@ def extract_props(basename: str):
         "fukui-": [],
         "fukui0": [],
     }
-
+    print(Path.cwd())
+    print(f"Extracting properties for {basename}...")
     # Process .out file
-    with open(os.path.join(temp_dir, f"{basename}.out"), "r") as f:
+    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = (
             lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
@@ -67,13 +68,13 @@ def extract_props(basename: str):
             props["polarizibility"].append(float(parts[6]))
 
     # Process .charges file
-    with open(os.path.join(temp_dir, f"{basename}.charges"), "r") as f:
+    with open(temp_dir / f"{basename}.charges", "r", encoding="utf-8") as f:
         lines = f.readlines()
         for line in lines:
             props["charges"].append(float(line))
 
     # Process _fod.out file
-    with open(os.path.join(temp_dir, f"{basename}_fod.out"), "r") as f:
+    with open(temp_dir / f"{basename}_fod.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = lines.index(" Loewdin FODpop      n(s)   n(p)   n(d)\n") + 1
         end_idx = lines.index("\n", start_idx)
@@ -86,11 +87,11 @@ def extract_props(basename: str):
             props["fod_d"].append(float(parts[5]))
 
     # Process _fukui.out file
-    with open(os.path.join(temp_dir, f"{basename}_fukui.out"), "r") as f:
+    with open(temp_dir / f"{basename}_fukui.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = lines.index("     #        f(+)     f(-)     f(0)\n") + 1
         end_idx = lines.index(
-            "           -------------------------------------------------", start_idx
+            "           -------------------------------------------------\n", start_idx
         )
         for line in lines[start_idx:end_idx]:
             parts = line.split()

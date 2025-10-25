@@ -16,6 +16,11 @@ dependencies = [
     "rdkit>=2025.3.3",
 ]
 
+[project.optional-dependencies]
+ipykernel = [
+    "pandas>=2.3.3",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -23,4 +28,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
+]
+jupyter = [
+    "ipykernel>=7.0.1",
 ]
