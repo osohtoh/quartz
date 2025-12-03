@@ -1,10 +1,14 @@
 import numpy as np
+import numpy.typing as npt
 from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
+from gridData import Grid, OpenDX
+from pathlib import Path
 
-from quartz.io import Grid, MoleculeData
+from quartz.data import Grid, MoleculeData
 
 # NOTE - docstrings need some more love in general
+
 
 def get_grid_size_for_dataset(
     mol_data: list[MoleculeData], size: float, padding: float
@@ -40,30 +44,104 @@ def get_grid_size_for_dataset(
         # NOTE - there's probably a nicer way to do this
         else:
             xyzs[0][0] = np.min(xs) if np.min(xs) < xyzs[0][0] else xyzs[0][0]
-            xyzs[0][1] = np.max(xs) if np.max(xs) < xyzs[0][1] else xyzs[0][1]
+            xyzs[0][1] = np.max(xs) if np.max(xs) > xyzs[0][1] else xyzs[0][1]
             xyzs[1][0] = np.min(ys) if np.min(ys) < xyzs[1][0] else xyzs[1][0]
-            xyzs[1][1] = np.max(ys) if np.max(ys) < xyzs[1][1] else xyzs[1][1]
+            xyzs[1][1] = np.max(ys) if np.max(ys) > xyzs[1][1] else xyzs[1][1]
             xyzs[2][0] = np.min(zs) if np.min(zs) < xyzs[2][0] else xyzs[2][0]
-            xyzs[2][1] = np.max(zs) if np.max(zs) < xyzs[2][1] else xyzs[2][1]
+            xyzs[2][1] = np.max(zs) if np.max(zs) > xyzs[2][1] else xyzs[2][1]
 
-    x_dist: float = np.round(np.abs(xyzs[0][0] - xyzs[0][1]), 3)
-    y_dist: float = np.round(np.abs(xyzs[1][0] - xyzs[1][1]), 3)
-    z_dist: float = np.round(np.abs(xyzs[2][0] - xyzs[2][1]), 3)
+    x_dist: float = np.abs(xyzs[0][0] - xyzs[0][1])
+    y_dist: float = np.abs(xyzs[1][0] - xyzs[1][1])
+    z_dist: float = np.abs(xyzs[2][0] - xyzs[2][1])
 
     # print(xyzs)
 
     return xyzs, x_dist, y_dist, z_dist
 
 
+# TODO - parse xtb_esp.dat
+# Format: x, y, z, val
+
+
+# FIXME - Check if it works lol, AI thingy
+def read_cube_to_array(
+    cubefile: str, target_array: npt.NDArray, origin: tuple[float, float, float]
+) -> npt.NDArray:
+    """
+    Parse a Gaussian cube (.cub) file and insert values into a NumPy array.
+
+    Parameters
+    ----------
+    cubefile : str
+        Path to the .cub file.
+    target_array : np.ndarray
+        Array into which volumetric data will be inserted.
+        Must be >= in size compared to cube grid.
+    origin : tuple(float, float, float)
+        Origin of `target_array` in cartesian coordinates (x0, y0, z0).
+
+    Returns
+    -------
+    np.ndarray
+        target_array with the cube data inserted at the correct location.
+    """
+    with open(cubefile, "r") as f:
+        # Skip title lines
+        f.readline()
+        f.readline()
+
+        # Number of atoms and file grid origin
+        natoms, ox, oy, oz = map(float, f.readline().split())
+        natoms = int(natoms)
+
+        # Grid dimensions and spacing, _ = 0.000
+        nx, vx_x, _ = map(float, f.readline().split())
+        ny, _, vy_y, _ = map(float, f.readline().split())
+        nz, _, _, vz_z = map(float, f.readline().split())
+        nx, ny, nz = int(nx), int(ny), int(nz)
+
+        # Skip atomic coordinates
+        for _ in range(natoms):
+            f.readline()
+
+        # Read the volumetric data
+        data = []
+        for line in f:
+            data.extend(line.split())
+        data = np.array(data, dtype=float).reshape((nx, ny, nz), order="C")
+
+    # Calculate relative insertion index into target_array
+    ox, oy, oz = np.array([ox, oy, oz])
+    gx, gy, gz = np.array(origin)
+
+    ix = int(round((ox - gx) / vx_x))
+    iy = int(round((oy - gy) / vy_y))
+    iz = int(round((oz - gz) / vz_z))
+
+    tx, ty, tz = target_array.shape
+
+    # Insert cube data into target array
+    target_array[ix : ix + nx, iy : iy + ny, iz : iz + nz] = data
+
+    return target_array
+
+
+def create_grid_from_cub():
+    pass
+
+
 # TODO - this whole thing needs refactoring
-# TODO - instead of 0.0 use None, maybe saves memory
-# TODO - threshold per prop
+# TODO - instead of 0.0 use None, maybe saves memory, sparse matrices
+# TODO - threshold per prop, use dict {prop: threshold}
 def create_grid(
     mol_data: list[MoleculeData],
     props: list[str],
     size: float = 1.0,
     padding: float = 5.0,
-    threshold: float = 0.01,
+    threshold: dict[str, float] | float = 0.01,
+    cutoff_dist: float = 10.0,
+    clamp_dist: float = 0.3,
+    clamp_falloff: float = 1000.0,
 ) -> list[Grid]:
     """
     Creates a grid for a given list of molecules and properties.
@@ -73,11 +151,22 @@ def create_grid(
         props (list[str]): List of properties to include in the grid.
         size (float, optional): Voxel size. Defaults to 1.0.
         padding (float, optional): Padding around the grid. Defaults to 5.0.
-        threshold (float, optional): Threshold for property values. Defaults to 0.01.
+        threshold (dict[str, float] | float, optional): Threshold for property values, either a single float or a dict per property. Defaults to 0.01.
 
     Returns:
         list[Grid]: List of grids, one for each molecule.
     """
+
+    if isinstance(threshold, float):
+        threshold = {prop: threshold for prop in props}
+    elif isinstance(threshold, dict):
+        # All props have a threshold, default to 0.01 if missing
+        for prop in props:
+            if prop not in threshold:
+                threshold[prop] = 0.01
+    else:
+        raise ValueError("Threshold must be a float or a dict[str, float]")
+
     xs, ys, zs = None, None, None
     if len(mol_data) == 1:
         xs, ys, zs = (
@@ -86,23 +175,23 @@ def create_grid(
             mol_data[0].coordinates[:, 2],
         )
         # FIXME - this honestly can break, revise
-        x_dist = np.round(np.abs(np.max(xs) - np.min(xs)), 3)
-        y_dist = np.round(np.abs(np.max(ys) - np.min(ys)), 3)
-        z_dist = np.round(np.abs(np.max(zs) - np.min(zs)), 3)
+        x_dist = np.abs(np.max(xs) - np.min(xs))
+        y_dist = np.abs(np.max(ys) - np.min(ys))
+        z_dist = np.abs(np.max(zs) - np.min(zs))
         print("Molecule lengths: ", x_dist, y_dist, z_dist)
         origin = (
-            np.round(np.min(xs) - padding, 1),
-            np.round(np.min(ys) - padding, 1),
-            np.round(np.min(zs) - padding, 1),
+            np.min(xs) - padding,
+            np.min(ys) - padding,
+            np.min(zs) - padding,
         )
     else:
         xyzs, x_dist, y_dist, z_dist = get_grid_size_for_dataset(
             mol_data, size, padding
         )
         origin = (
-            np.round(xyzs[0][0] - padding, 1),
-            np.round(xyzs[1][0] - padding, 1),
-            np.round(xyzs[2][0] - padding, 1),
+            xyzs[0][0] - padding,
+            xyzs[1][0] - padding,
+            xyzs[2][0] - padding,
         )
         xs = [xyzs[0][0], xyzs[0][1]]
         ys = [xyzs[1][0], xyzs[1][1]]
@@ -131,7 +220,6 @@ def create_grid(
     # NOTE - we assume that all supplied MoleculeData have same amount of props
     prop_count = len(mol_data[0].res.keys())
 
-
     grid_props = [
         [
             np.min(xs),  # Molecule start
@@ -147,13 +235,13 @@ def create_grid(
         ],
         origin,
         size,
-        padding
+        padding,
     ]
 
     prop_map_: list[tuple[int, str]] = list(enumerate(props))
 
     grids = []
-    for i in mol_data:
+    for mol in mol_data:
         grid_prop_dict = {}
         prop_map: enumerate[str] = enumerate(props)
         # NOTE - not sure how reliable this is, possible solution is to recenter geometry from 0,0,0
@@ -164,11 +252,11 @@ def create_grid(
             size,
             offSet=Point3D(*origin),
         )
-        print("Processing: ", i.smiles)
+        print("Processing: ", mol.smiles)
 
-        mol_points = [Point3D(j, k, l) for j, k, l in i.coordinates]
+        mol_points = [Point3D(j, k, l) for j, k, l in mol.coordinates]
         np_point_coords = np.array(
-            [[j, k, l] for j, k, l in i.coordinates], dtype=np.float16
+            [[j, k, l] for j, k, l in mol.coordinates], dtype=np.float16
         )
         # print('Mol points: ', [j.x for j in mol_points])
         # print(np_point_coords)
@@ -178,7 +266,7 @@ def create_grid(
         np_zs = np.arange(origin[2], origin[2] + z_len, size, dtype=np.float16)
         # print("np shapes: ", np_xs.shape, np_ys.shape, np_zs.shape)
 
-        np_coords = np.meshgrid(np_xs, np_ys, np_zs)
+        np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing='ij')
         grid_points = np.vstack(
             [np_coords[0].ravel(), np_coords[1].ravel(), np_coords[2].ravel()]
         ).T
@@ -195,12 +283,12 @@ def create_grid(
         # print(prop_map)
 
         props_np = []
-        mol: Mol = i.rdmol
+        rdMol: Mol = mol.rdmol
         for j, key in prop_map:
             # print(i, key)
             temp = []
-            for idx, coords in zip(range(mol.GetNumAtoms()), point_idxs):
-                prop_val = float(mol.GetAtomWithIdx(idx).GetProp(key))
+            for idx, coords in zip(range(rdMol.GetNumAtoms()), point_idxs):
+                prop_val = float(rdMol.GetAtomWithIdx(idx).GetProp(key))
                 # print(idx, coords)
                 # print(prop_val)
                 # grid[*coords, j] = prop_val # Old way to do this
@@ -210,47 +298,106 @@ def create_grid(
         props_np = np.array(props_np, dtype=np.float16)
         # print("props_np shape: ", props_np.shape)
         # NOTE - reshaping so we can broadcast
-        reshaped_point_coords = np_point_coords[
-            :, np.newaxis, :
-        ]  # Shape: (n_atoms, 1, 3)
-        reshaped_grid_points = grid_points[
-            np.newaxis, :, :
-        ]  # Shape: (1, n_grid_points, 3)
+        # reshaped_point_coords = np_point_coords[
+        #     :, np.newaxis, :
+        # ]  # Shape: (n_atoms, 1, 3)
+        # reshaped_grid_points = grid_points[
+        #     np.newaxis, :, :
+        # ]  # Shape: (1, n_grid_points, 3)
 
-        distances = np.linalg.norm(reshaped_point_coords - reshaped_grid_points, axis=2)
-        distances = np.maximum(distances, 0.1)
-        falloff = 1.0 / (np.power(distances, 6) + np.finfo(np.float16).eps)
+        # distances = np.linalg.norm(reshaped_point_coords - reshaped_grid_points, axis=2)
+        # distances = np.maximum(distances, 0.1)
+        # falloff = 1.0 / (np.power(distances, 6) + np.finfo(np.float16).eps)
+        # falloff = np.exp(-0.5 * (distances / 2.0)**2) # Gaussian
+        # falloff = np.exp(-distances / 2.0) # Exponential
+
 
         for j, key in prop_map_:
             property_grid = np.zeros(
                 (x_gridcount, y_gridcount, z_gridcount), dtype=np.float16
             )
+            
+
 
             # Calculate contributions for each atom and add to grid
             # NOTE - add some better falloff scaling at close distances
             for atom_idx, atom_point in enumerate(np_point_coords):
                 atom_prop = props_np[j, atom_idx]
-                atom_falloff = falloff[atom_idx, :]
+                atom_pos = np_point_coords[atom_idx]
                 # print(f"{atom_idx}: ", atom_prop)
+                # atom_falloff = falloff[atom_idx, :]
 
-                point_contributions = atom_prop * atom_falloff
-                point_contributions = np.minimum(point_contributions, atom_prop)
+                # Vectorized distance
+                dx = grid_points[:, 0] - atom_pos[0]
+                dy = grid_points[:, 1] - atom_pos[1]
+                dz = grid_points[:, 2] - atom_pos[2]
+                distances_sq = dx*dx + dy*dy + dz*dz
+
+                mask = distances_sq < (cutoff_dist ** 2)
+                n_nearby = np.sum(mask)
+
+                if n_nearby == 0:
+                    continue
+
+                distances = np.sqrt(distances_sq[mask])
+                # Clamp the distances at clamp_dist
+                safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
+
+                falloff = 1.0 / (np.power(safe_distances, 6, dtype=np.float32) +  1e-10)
+                falloff = np.minimum(falloff, clamp_falloff)
+
+                point_contributions = atom_prop * falloff
+                point_contributions = np.minimum(point_contributions, atom_prop * clamp_falloff / 10.0)
                 # print(point_contributions.shape)
-                # print(np.max(point_contributions))
+                print(np.max(point_contributions))
+
+                full_contributions = np.zeros(grid_points.shape[0], dtype=np.float32)
+                full_contributions[mask] = point_contributions
+                print(np.max(full_contributions))
 
                 # NOTE - apparently meshgrid indexes weirdly so we reshape with y, x, z
-                point_contributions_shaped = point_contributions.reshape(
-                    y_gridcount, x_gridcount, z_gridcount
-                )
-                point_contributions_shaped = np.transpose(
-                    point_contributions_shaped, (1, 0, 2)
-                )
+                # point_contributions_shaped = point_contributions.reshape(
+                #     y_gridcount, x_gridcount, z_gridcount
+                # )
+                # point_contributions_shaped = np.transpose(
+                #     point_contributions_shaped, (1, 0, 2)
+                # )
 
-                property_grid += point_contributions_shaped
+                contrib_shaped = full_contributions.reshape(x_gridcount, y_gridcount, z_gridcount)
+                # property_grid += np.transpose(contrib_shaped, (1, 0, 2)).astype(np.float16)
 
-            # Apply threshold and store
-            property_grid[property_grid < threshold] = 0.0
+                property_grid += contrib_shaped.astype(np.float16)
+                print(np.max(property_grid))
+
+            # Apply threshold per property and store
+            property_grid[np.abs(property_grid) < threshold[key]] = 0.0
             grid_prop_dict[key] = property_grid
+
+            # # Apply threshold and store sparsely to save memory, AI thingamajig
+            # mask = property_grid >= threshold[key]
+            # if mask.any():
+            #     coords = np.nonzero(mask)  # tuple of arrays (x_idx, y_idx, z_idx)
+            #     values = property_grid[coords].astype(np.float16)
+            #     # store as COO-like structure: coords (nnz,3) int32, values float16, shape
+            #     grid_prop_dict[key] = {
+            #         "coords": np.vstack(coords).astype(np.int32).T,
+            #         "values": values,
+            #         "shape": property_grid.shape,
+            #     }
+            #     # prefer pydata.sparse COO if available
+            #     if _HAS_PYDATA_SPARSE:
+            #         try:
+            #             grid_prop_dict[key] = _sparse.COO(np.vstack(coords), values, shape=property_grid.shape)
+            #         except Exception:
+            #             # fall back to dict if pydata.sparse fails
+            #             pass
+            # else:
+            #     # empty grid -> store empty COO-like structure
+            #     grid_prop_dict[key] = {
+            #         "coords": np.zeros((0, 3), dtype=np.int32),
+            #         "values": np.zeros((0,), dtype=np.float16),
+            #         "shape": property_grid.shape,
+            #     }
 
         grids.append(
             Grid(
@@ -260,8 +407,31 @@ def create_grid(
                 mol_points,
                 point_idxs,
                 grid_props,
-                mol_data=i,
+                mol_data=mol,
             )
         )
 
     return grids
+
+
+def to_dxgrid(grids: list[Grid]):
+    if not isinstance(grids, list):
+        grids = [grids]
+
+    for grid in grids:
+        npgrid = grid.npGrid
+        props = grid.grid_props
+        origin = np.array(props[3])
+        delta = np.diag([props[4], props[4], props[4]])
+
+        grids_dir = Path("grids")
+        grids_dir.mkdir(exist_ok=True)
+
+        for key, val in npgrid.items():
+            dx = OpenDX.field(grid.mol_data.smiles)
+            dx.add("positions", OpenDX.gridpositions(1, val.shape, origin, delta))
+            dx.add("connections", OpenDX.gridconnections(2, val.shape))
+            dx.add("data", OpenDX.array(3, val))
+            output_file = grids_dir / f"{key}_{grid.mol_data.filename}.dx"
+            dx.write(str(output_file))
+            grid.dxGrid = dx
