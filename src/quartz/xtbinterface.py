@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -42,10 +43,8 @@ $end
         input_file.write_text(input)
 
 
-# NOTE maybe change to pathlib fully, low pri
 def get_props(input_geo: str, size: float = 1.0):
     """ """
-    cwd = Path.cwd()
     # Create temp directory
     input_path = Path(input_geo)
     temp_dir = input_path.parent / f"temp_{input_path.stem}"
@@ -122,5 +121,8 @@ def get_props(input_geo: str, size: float = 1.0):
         print(result.stdout)
         raise Exception("xTB calculation failed.")
         
-    # Parse output
-    return extract_props(temp_dir, input_path.stem)
+    # Parse output and remove temp dir
+    out = extract_props(temp_dir, input_path.stem)
+    # shutil.rmtree(temp_dir)
+
+    return out

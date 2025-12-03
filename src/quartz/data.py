@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 import numpy.typing as npt
 import qcelemental.models.types as qcelt
@@ -13,7 +13,10 @@ class MoleculeData:
     res: dict[str, Any]
     smiles: str
     rdmol: Mol
-    filename: str | None
+    filename: str = ""
+    pdb_code: str = ""
+    ki: float = 0.0
+    pki: float = 0.0
 
 
 @dataclass
