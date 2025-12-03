@@ -38,7 +38,6 @@ def extract_props(temp_dir: Path, basename: str):
     # From basename.charges:
     # - partial charge q
     
-
     props = {
         "coordination number": [],
         "dispersion coef": [],
@@ -52,8 +51,11 @@ def extract_props(temp_dir: Path, basename: str):
         "fukui-": [],
         "fukui0": [],
     }
-    print(Path.cwd())
-    print(f"Extracting properties for {basename}...")
+
+    # print(f"Extracting properties for {basename}...")
+
+    # FIXME - change so it uses the json file
+
     # Process .out file
     with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -82,9 +84,9 @@ def extract_props(temp_dir: Path, basename: str):
             parts = line.split()
             props["fullpop"].append(float(parts[2]))
             # You could do falloffs specific to type of orbital (probably not needed, but cool idea nonetheless)
-            props["fod_s"].append(float(parts[3]))
-            props["fod_p"].append(float(parts[4]))
-            props["fod_d"].append(float(parts[5]))
+            props["fod_s"].append(float(parts[-3]))
+            props["fod_p"].append(float(parts[-2]))
+            props["fod_d"].append(float(parts[-1]))
 
     # Process _fukui.out file
     with open(temp_dir / f"{basename}_fukui.out", "r", encoding="utf-8") as f:
@@ -95,9 +97,10 @@ def extract_props(temp_dir: Path, basename: str):
         )
         for line in lines[start_idx:end_idx]:
             parts = line.split()
-            props["fukui+"].append(float(parts[2]))
-            props["fukui-"].append(float(parts[3]))
-            props["fukui0"].append(float(parts[4]))
+            props["fukui+"].append(float(parts[-3]))
+            props["fukui-"].append(float(parts[-2]))
+            props["fukui0"].append(float(parts[-1]))
+
 
     return props
 
@@ -106,12 +109,28 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
     prop_overlap: dict[str, float] = {}
 
     for key in props:
-        np_grids = [grid.npGrid[key] for grid in grids]
-        combs = combinations(np_grids, 2)
-        differences = np.array([np.subtract(a, b) for a, b in combs])
-        sums = np.sum(np.array(np_grids))
-        prop_overlap[key] = np.round(
-            1 - np.abs(np.sum(differences) / (len(differences) * sums)), 4
-        )
+        # Convert to float64 to prevent overflow
+        np_grids = [grid.npGrid[key].astype(np.float64) for grid in grids]
+        combs = list(combinations(np_grids, 2))
+        
+        if len(combs) == 0:
+            prop_overlap[key] = np.nan
+            continue
+        
+        # Calculate differences pairwise to avoid huge arrays
+        total_diff = 0.0
+        for a, b in combs:
+            total_diff += np.sum(np.abs(a - b))
+        
+        # Sum all grids
+        total_sum = sum(np.sum(np.abs(g)) for g in np_grids)
+        
+        # Avoid division by zero
+        if total_sum == 0 or np.isinf(total_sum):
+            prop_overlap[key] = np.nan
+        else:
+            prop_overlap[key] = np.round(
+                1 - (total_diff / (len(combs) * total_sum)), 4
+            )
 
     return prop_overlap
