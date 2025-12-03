@@ -34,7 +34,8 @@ def load_and_process(
     # Path input expected to have hydrogens and be optimized
     if input_dir:
         input_path = Path(input_dir)
-        paths: list[Path] = list(input_path.glob("*.*"))
+        paths: list[Path] = list(input_path.glob("*.xyz")) + list(input_path.glob("*.pdb"))
+        # print(paths)
         for path in paths:
             mol: Molecule = get_mol(str(path))
             res = get_props(str(path), size)
