@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import qcelemental as qcel
 from rdkit.Chem.rdchem import Mol
 from rdkit.Chem.rdDetermineBonds import DetermineBonds
@@ -24,18 +26,28 @@ def optimize(smiles: str) -> str:
 
 def xyz_to_mol(file: str, chrg: int = 0) -> Mol:
     mol = None
+    try:
+        p = Path(file)
+        exists = p.exists()
+        suffix = p.suffix.lower()
+    except Exception:
+        exists = False
+        suffix = ""
+
     # NOTE - This is a bit of a hack, also needs proper charge determination
-    if file.find("/") != -1:
-        if file[-3:] == "xyz":
+    if "/" in file or "\\" in file or exists:
+        if suffix == ".xyz" or file[-3:].lower() == "xyz":
             mol = MolFromXYZFile(file)
             DetermineBonds(mol, charge=chrg)
-        elif file[-3:] == "pdb":
+        elif suffix == ".pdb" or file[-3:].lower() == "pdb":
             mol = MolFromPDBFile(file, removeHs=False)
+        else:
+            raise Exception("Invalid file type. Use xyz file/block or pdb.")
     else:
         mol = MolFromXYZBlock(file)
         DetermineBonds(mol, charge=chrg)
     if mol is None:
-        raise Exception
+        raise Exception("Failed to parse molecule from input")
     return mol
 
 
@@ -60,5 +72,5 @@ def get_mol(path: str) -> Mol:
             mol = qcel.models.Molecule.from_file(path)
             return mol
         case "pdb":
-            mol = qcel.models.Molecule.from_data(pdb_to_xyz(path))
+            mol = qcel.models.Molecule.from_data(pdb_to_xyz(path), dtype="xyz")
             return mol
