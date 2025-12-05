@@ -130,9 +130,7 @@ def create_grid_from_cub():
     pass
 
 
-# TODO - this whole thing needs refactoring
 # TODO - instead of 0.0 use None, maybe saves memory, sparse matrices
-# TODO - threshold per prop, use dict {prop: threshold}
 def create_grid(
     mol_data: list[MoleculeData],
     props: list[str],
@@ -266,7 +264,7 @@ def create_grid(
         np_zs = np.arange(origin[2], origin[2] + z_len, size, dtype=np.float16)
         # print("np shapes: ", np_xs.shape, np_ys.shape, np_zs.shape)
 
-        np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing='ij')
+        np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
         grid_points = np.vstack(
             [np_coords[0].ravel(), np_coords[1].ravel(), np_coords[2].ravel()]
         ).T
@@ -311,29 +309,27 @@ def create_grid(
         # falloff = np.exp(-0.5 * (distances / 2.0)**2) # Gaussian
         # falloff = np.exp(-distances / 2.0) # Exponential
 
-
         for j, key in prop_map_:
             property_grid = np.zeros(
                 (x_gridcount, y_gridcount, z_gridcount), dtype=np.float16
             )
-            
-
 
             # Calculate contributions for each atom and add to grid
             # NOTE - add some better falloff scaling at close distances
             for atom_idx, atom_point in enumerate(np_point_coords):
                 atom_prop = props_np[j, atom_idx]
+                prop_precision = str(atom_prop)[::-1].find(".")
                 atom_pos = np_point_coords[atom_idx]
-                # print(f"{atom_idx}: ", atom_prop)
+                print(f"{atom_idx}: ", atom_prop)
                 # atom_falloff = falloff[atom_idx, :]
 
                 # Vectorized distance
                 dx = grid_points[:, 0] - atom_pos[0]
                 dy = grid_points[:, 1] - atom_pos[1]
                 dz = grid_points[:, 2] - atom_pos[2]
-                distances_sq = dx*dx + dy*dy + dz*dz
+                distances_sq = dx * dx + dy * dy + dz * dz
 
-                mask = distances_sq < (cutoff_dist ** 2)
+                mask = distances_sq < (cutoff_dist**2)
                 n_nearby = np.sum(mask)
 
                 if n_nearby == 0:
@@ -343,17 +339,18 @@ def create_grid(
                 # Clamp the distances at clamp_dist
                 safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
 
-                falloff = 1.0 / (np.power(safe_distances, 6, dtype=np.float32) +  1e-10)
-                falloff = np.minimum(falloff, clamp_falloff)
+                falloff = 1.0 / (np.power(safe_distances, 6, dtype=np.float32) + 1e-10)
+                falloff = np.minimum(falloff, atom_prop)
 
                 point_contributions = atom_prop * falloff
-                point_contributions = np.minimum(point_contributions, atom_prop * clamp_falloff / 10.0)
+                point_contributions = np.minimum(point_contributions, atom_prop)
+                print("Max point contributions:", np.max(point_contributions))
+                # if np.max(point_contributions) > atom_prop:
+                #     raise ValueError("Contribution exceeds atom property value")
                 # print(point_contributions.shape)
-                print(np.max(point_contributions))
 
                 full_contributions = np.zeros(grid_points.shape[0], dtype=np.float32)
                 full_contributions[mask] = point_contributions
-                print(np.max(full_contributions))
 
                 # NOTE - apparently meshgrid indexes weirdly so we reshape with y, x, z
                 # point_contributions_shaped = point_contributions.reshape(
@@ -363,41 +360,17 @@ def create_grid(
                 #     point_contributions_shaped, (1, 0, 2)
                 # )
 
-                contrib_shaped = full_contributions.reshape(x_gridcount, y_gridcount, z_gridcount)
+                contrib_shaped = full_contributions.reshape(
+                    x_gridcount, y_gridcount, z_gridcount
+                )
                 # property_grid += np.transpose(contrib_shaped, (1, 0, 2)).astype(np.float16)
 
                 property_grid += contrib_shaped.astype(np.float16)
-                print(np.max(property_grid))
+                print("Max property grid value:", np.max(property_grid))
 
             # Apply threshold per property and store
             property_grid[np.abs(property_grid) < threshold[key]] = 0.0
             grid_prop_dict[key] = property_grid
-
-            # # Apply threshold and store sparsely to save memory, AI thingamajig
-            # mask = property_grid >= threshold[key]
-            # if mask.any():
-            #     coords = np.nonzero(mask)  # tuple of arrays (x_idx, y_idx, z_idx)
-            #     values = property_grid[coords].astype(np.float16)
-            #     # store as COO-like structure: coords (nnz,3) int32, values float16, shape
-            #     grid_prop_dict[key] = {
-            #         "coords": np.vstack(coords).astype(np.int32).T,
-            #         "values": values,
-            #         "shape": property_grid.shape,
-            #     }
-            #     # prefer pydata.sparse COO if available
-            #     if _HAS_PYDATA_SPARSE:
-            #         try:
-            #             grid_prop_dict[key] = _sparse.COO(np.vstack(coords), values, shape=property_grid.shape)
-            #         except Exception:
-            #             # fall back to dict if pydata.sparse fails
-            #             pass
-            # else:
-            #     # empty grid -> store empty COO-like structure
-            #     grid_prop_dict[key] = {
-            #         "coords": np.zeros((0, 3), dtype=np.int32),
-            #         "values": np.zeros((0,), dtype=np.float16),
-            #         "shape": property_grid.shape,
-            #     }
 
         grids.append(
             Grid(

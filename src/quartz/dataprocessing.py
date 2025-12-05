@@ -37,7 +37,7 @@ def extract_props(temp_dir: Path, basename: str):
     # [     #        f(+)     f(-)     f(0)]
     # From basename.charges:
     # - partial charge q
-    
+
     props = {
         "coordination number": [],
         "dispersion coef": [],
@@ -101,7 +101,6 @@ def extract_props(temp_dir: Path, basename: str):
             props["fukui-"].append(float(parts[-2]))
             props["fukui0"].append(float(parts[-1]))
 
-
     return props
 
 
@@ -112,25 +111,23 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
         # Convert to float64 to prevent overflow
         np_grids = [grid.npGrid[key].astype(np.float64) for grid in grids]
         combs = list(combinations(np_grids, 2))
-        
+
         if len(combs) == 0:
             prop_overlap[key] = np.nan
             continue
-        
+
         # Calculate differences pairwise to avoid huge arrays
         total_diff = 0.0
         for a, b in combs:
             total_diff += np.sum(np.abs(a - b))
-        
+
         # Sum all grids
         total_sum = sum(np.sum(np.abs(g)) for g in np_grids)
-        
+
         # Avoid division by zero
         if total_sum == 0 or np.isinf(total_sum):
             prop_overlap[key] = np.nan
         else:
-            prop_overlap[key] = np.round(
-                1 - (total_diff / (len(combs) * total_sum)), 4
-            )
+            prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
 
     return prop_overlap

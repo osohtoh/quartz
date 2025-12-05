@@ -120,7 +120,7 @@ def get_props(input_geo: str, size: float = 1.0):
     if result.returncode or result_fuk.returncode or result_fod.returncode:
         print(result.stdout)
         raise Exception("xTB calculation failed.")
-        
+
     # Parse output and remove temp dir
     out = extract_props(temp_dir, input_path.stem)
     # shutil.rmtree(temp_dir)

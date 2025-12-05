@@ -6,6 +6,7 @@ from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D_
 
+
 @dataclass
 class MoleculeData:
     atomic_numbers: qcelt.Array
