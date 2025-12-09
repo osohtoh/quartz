@@ -17,6 +17,8 @@ def assign_props(mol_data: MoleculeData, props: list[str]) -> None:
     """
     mol: Mol = mol_data.rdmol
     # TODO - add assigning all available props
+    if props == ["all"]:
+        props = list(mol_data.res.keys())
     for key in props:
         # TODO - check whether key matches tblite/dftd4 docs
         for idx, val in enumerate(mol_data.res[key]):
