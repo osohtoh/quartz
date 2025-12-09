@@ -74,3 +74,8 @@ def get_mol(path: str) -> Mol:
         case "pdb":
             mol = qcel.models.Molecule.from_data(pdb_to_xyz(path), dtype="xyz")
             return mol
+        case _:
+            raise Exception(f"Unsupported file format. Choose pdb or xyz file. \n File: {path}")
+
+def get_pdb_charge(path: str) -> int:
+    pass

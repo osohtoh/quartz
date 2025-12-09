@@ -320,7 +320,7 @@ def create_grid(
                 atom_prop = props_np[j, atom_idx]
                 prop_precision = str(atom_prop)[::-1].find(".")
                 atom_pos = np_point_coords[atom_idx]
-                print(f"{atom_idx}: ", atom_prop)
+                # print(f"{atom_idx}: ", atom_prop)
                 # atom_falloff = falloff[atom_idx, :]
 
                 # Vectorized distance
@@ -344,7 +344,7 @@ def create_grid(
 
                 point_contributions = atom_prop * falloff
                 point_contributions = np.minimum(point_contributions, atom_prop)
-                print("Max point contributions:", np.max(point_contributions))
+                # print("Max point contributions:", np.max(point_contributions))
                 # if np.max(point_contributions) > atom_prop:
                 #     raise ValueError("Contribution exceeds atom property value")
                 # print(point_contributions.shape)
@@ -366,7 +366,7 @@ def create_grid(
                 # property_grid += np.transpose(contrib_shaped, (1, 0, 2)).astype(np.float16)
 
                 property_grid += contrib_shaped.astype(np.float16)
-                print("Max property grid value:", np.max(property_grid))
+                # print("Max property grid value:", np.max(property_grid))
 
             # Apply threshold per property and store
             property_grid[np.abs(property_grid) < threshold[key]] = 0.0
