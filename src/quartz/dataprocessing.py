@@ -1,7 +1,10 @@
 from itertools import combinations
 from pathlib import Path
+from xml import parsers
 
+from gridData import OpenDX
 import numpy as np
+import numpy.typing as npt
 from rdkit.Chem.rdchem import Mol
 
 from quartz.data import Grid, MoleculeData
@@ -131,3 +134,6 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
             prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
 
     return prop_overlap
+
+def get_overlap_grid(grids: list[Grid], props: list[str]) -> dict[str, npt.NDArray]:
+    pass
