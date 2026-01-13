@@ -16,8 +16,8 @@ class MoleculeData:
     rdmol: Mol
     filename: str = ""
     pdb_code: str = ""
-    ki: float = 0.0
-    pki: float = 0.0
+    ki: float | None = None
+    pki: float | None = None
 
 
 @dataclass

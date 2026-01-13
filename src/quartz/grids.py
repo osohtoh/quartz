@@ -140,6 +140,7 @@ def create_grid(
     cutoff_dist: float = 10.0,
     clamp_dist: float = 0.3,
     clamp_falloff: float = 1000.0,
+    falloff_exp: float = 12.0,
 ) -> list[Grid]:
     """
     Creates a grid for a given list of molecules and properties.
@@ -339,11 +340,14 @@ def create_grid(
                 # Clamp the distances at clamp_dist
                 safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
 
-                falloff = 1.0 / (np.power(safe_distances, 6, dtype=np.float32) + 1e-10)
-                falloff = np.minimum(falloff, atom_prop)
+                falloff = 1.0 / (np.power(safe_distances, falloff_exp, dtype=np.float32) + 1e-10)
+                falloff = np.minimum(falloff, np.abs(atom_prop))  # Cap at |atom_prop|
 
                 point_contributions = atom_prop * falloff
-                point_contributions = np.minimum(point_contributions, atom_prop)
+                # Clamp: positive charges in [0, atom_prop], negative in [atom_prop, 0]
+                point_contributions = np.clip(point_contributions, 
+                                              min(0, atom_prop), 
+                                              max(0, atom_prop))
                 # print("Max point contributions:", np.max(point_contributions))
                 # if np.max(point_contributions) > atom_prop:
                 #     raise ValueError("Contribution exceeds atom property value")
@@ -363,6 +367,8 @@ def create_grid(
                 contrib_shaped = full_contributions.reshape(
                     x_gridcount, y_gridcount, z_gridcount
                 )
+                # print(f"Max contrib shaped for atom {atom_idx}:", np.max(contrib_shaped))
+                # print(f"Min contrib shaped for atom {atom_idx}:", np.min(contrib_shaped))
                 # property_grid += np.transpose(contrib_shaped, (1, 0, 2)).astype(np.float16)
 
                 property_grid += contrib_shaped.astype(np.float16)
