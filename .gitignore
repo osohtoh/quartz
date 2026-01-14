@@ -12,3 +12,6 @@ wheels/
 # Temporary test directories
 tests/sample_data/temp_*
 tests/sample_data/*/temp_*
+
+# dx grids
+*.dx

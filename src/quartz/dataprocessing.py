@@ -163,6 +163,7 @@ def calculate_average(
     return prop_averages
 
 
+# TODO - make use of docking score or \DeltaG = -RTlnK as the energy for boltzmann
 def calculate_boltz_avg(
     grids: list[Grid], props: list[str], beta: float = 1.0
 ) -> dict[str, npt.NDArray[np.float64]]:
@@ -202,3 +203,14 @@ def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> di
         pki_weighted_avg = np.mean([grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0)
         prop_averages[key] = pki_weighted_avg
     return prop_averages
+
+def grid_stddev(grid: list[Grid], props: list[str]) -> dict[str, npt.NDArray[np.float64]]:
+    prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
+
+    for key in props:
+        np_grids = np.array(
+            [g.npGrid[key].astype(np.float64) for g in grid]
+        )
+
+        prop_stddev[key] = np.std(np_grids, axis=0)
+    return prop_stddev
