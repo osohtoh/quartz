@@ -1,13 +1,11 @@
-import numpy as np
-import numpy.typing as npt
-from rdkit.Chem.rdchem import Mol
-from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
-from gridData import Grid, OpenDX
 from pathlib import Path
 
-from quartz.data import Grid, MoleculeData
-
-# NOTE - docstrings need some more love in general
+import numpy as np
+import numpy.typing as npt
+from gridData import Grid, OpenDX
+from rdkit.Chem.rdchem import Mol
+from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
+from scipy.spatial.distance import cdist
 
 
 def get_grid_size_for_dataset(
@@ -239,6 +237,18 @@ def create_grid(
 
     prop_map_: list[tuple[int, str]] = list(enumerate(props))
 
+    # Pre-calculate grid points using broadcasting
+    np_xs = np.arange(origin[0], origin[0] + x_len, size, dtype=np.float16)
+    np_ys = np.arange(origin[1], origin[1] + y_len, size, dtype=np.float16)
+    np_zs = np.arange(origin[2], origin[2] + z_len, size, dtype=np.float16)
+
+    # We construct grid_points which is (N_grid, 3)
+    np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
+    # grid_points: Shape (N_grid_points, 3)
+    grid_points: npt.NDArray[np.float32] = np.vstack(
+        [np_coords[0].ravel(), np_coords[1].ravel(), np_coords[2].ravel()]
+    ).T.astype(np.float32)
+
     grids = []
     for mol in mol_data:
         grid_prop_dict = {}
@@ -254,23 +264,14 @@ def create_grid(
         print("Processing: ", mol.smiles)
 
         mol_points = [Point3D(j, k, l) for j, k, l in mol.coordinates]
-        np_point_coords = np.array(
-            [[j, k, l] for j, k, l in mol.coordinates], dtype=np.float16
+        # np_point_coords: Shape (N_atoms, 3)
+        np_point_coords: npt.NDArray[np.float32] = np.array(
+            [[j, k, l] for j, k, l in mol.coordinates], dtype=np.float32
         )
         # print('Mol points: ', [j.x for j in mol_points])
         # print(np_point_coords)
 
-        np_xs = np.arange(origin[0], origin[0] + x_len, size, dtype=np.float16)
-        np_ys = np.arange(origin[1], origin[1] + y_len, size, dtype=np.float16)
-        np_zs = np.arange(origin[2], origin[2] + z_len, size, dtype=np.float16)
-        # print("np shapes: ", np_xs.shape, np_ys.shape, np_zs.shape)
-
-        np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
-        grid_points = np.vstack(
-            [np_coords[0].ravel(), np_coords[1].ravel(), np_coords[2].ravel()]
-        ).T
-        # print("coords shape: ", grid_points.shape)
-        # print(grid_points)
+        # NOTE - original code recalculated grid points, skipping that here
 
         point_idxs: list[tuple[int]] = []
         for j in mol_points:
@@ -286,93 +287,63 @@ def create_grid(
         for j, key in prop_map:
             # print(i, key)
             temp = []
-            for idx, coords in zip(range(rdMol.GetNumAtoms()), point_idxs):
+            for idx in range(rdMol.GetNumAtoms()):
                 prop_val = float(rdMol.GetAtomWithIdx(idx).GetProp(key))
-                # print(idx, coords)
-                # print(prop_val)
-                # grid[*coords, j] = prop_val # Old way to do this
                 temp.append(prop_val)
             props_np.append(temp)
 
-        props_np = np.array(props_np, dtype=np.float16)
-        # print("props_np shape: ", props_np.shape)
-        # NOTE - reshaping so we can broadcast
-        # reshaped_point_coords = np_point_coords[
-        #     :, np.newaxis, :
-        # ]  # Shape: (n_atoms, 1, 3)
-        # reshaped_grid_points = grid_points[
-        #     np.newaxis, :, :
-        # ]  # Shape: (1, n_grid_points, 3)
+        # props_np: Shape (N_props, N_atoms)
+        props_np = np.array(props_np, dtype=np.float32)
 
-        # distances = np.linalg.norm(reshaped_point_coords - reshaped_grid_points, axis=2)
-        # distances = np.maximum(distances, 0.1)
-        # falloff = 1.0 / (np.power(distances, 6) + np.finfo(np.float16).eps)
-        # falloff = np.exp(-0.5 * (distances / 2.0)**2) # Gaussian
-        # falloff = np.exp(-distances / 2.0) # Exponential
+        # Calculate distances using scipy.spatial.distance.cdist
+        # grid_points: (N_grid, 3)
+        # np_point_coords: (N_atoms, 3)
+        # distances: Shape (N_grid, N_atoms)
+        distances: npt.NDArray[np.float32] = cdist(grid_points, np_point_coords).astype(
+            np.float32
+        )
 
         for j, key in prop_map_:
-            property_grid = np.zeros(
-                (x_gridcount, y_gridcount, z_gridcount), dtype=np.float16
+            atom_props: npt.NDArray[np.float32] = props_np[j, :]  # Shape (N_atoms,)
+
+            # 1. Mask cutoff
+            # mask: Shape (N_grid, N_atoms)
+            mask = distances < cutoff_dist
+
+            # 2. Clamp distances
+            safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
+
+            # 3. Calculate falloff
+            # falloff: Shape (N_grid, N_atoms)
+            falloff: npt.NDArray[np.float32] = 1.0 / (
+                np.power(safe_distances, falloff_exp) + 1e-10
             )
 
-            # Calculate contributions for each atom and add to grid
-            # NOTE - add some better falloff scaling at close distances
-            for atom_idx, atom_point in enumerate(np_point_coords):
-                atom_prop = props_np[j, atom_idx]
-                prop_precision = str(atom_prop)[::-1].find(".")
-                atom_pos = np_point_coords[atom_idx]
-                # print(f"{atom_idx}: ", atom_prop)
-                # atom_falloff = falloff[atom_idx, :]
+            # 4. Cap falloff at |atom_prop|
+            abs_atom_props = np.abs(atom_props)
+            falloff = np.minimum(falloff, abs_atom_props)
 
-                # Vectorized distance
-                dx = grid_points[:, 0] - atom_pos[0]
-                dy = grid_points[:, 1] - atom_pos[1]
-                dz = grid_points[:, 2] - atom_pos[2]
-                distances_sq = dx * dx + dy * dy + dz * dz
+            # 5. Calculate contributions
+            # contributions: Shape (N_grid, N_atoms)
+            contributions: npt.NDArray[np.float32] = atom_props * falloff
 
-                mask = distances_sq < (cutoff_dist**2)
-                n_nearby = np.sum(mask)
+            # 6. Clip contributions based on sign of atom_prop
+            min_vals = np.minimum(0, atom_props)
+            max_vals = np.maximum(0, atom_props)
+            contributions = np.clip(contributions, min_vals, max_vals)
 
-                if n_nearby == 0:
-                    continue
+            # 7. Apply mask (distances < cutoff)
+            contributions[~mask] = 0.0
 
-                distances = np.sqrt(distances_sq[mask])
-                # Clamp the distances at clamp_dist
-                safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
+            # 8. Sum contributions across atoms for each grid point
+            # property_grid_flat: Shape (N_grid,)
+            property_grid_flat = np.sum(contributions, axis=1)
 
-                falloff = 1.0 / (np.power(safe_distances, falloff_exp, dtype=np.float32) + 1e-10)
-                falloff = np.minimum(falloff, np.abs(atom_prop))  # Cap at |atom_prop|
-
-                point_contributions = atom_prop * falloff
-                # Clamp: positive charges in [0, atom_prop], negative in [atom_prop, 0]
-                point_contributions = np.clip(point_contributions, 
-                                              min(0, atom_prop), 
-                                              max(0, atom_prop))
-                # print("Max point contributions:", np.max(point_contributions))
-                # if np.max(point_contributions) > atom_prop:
-                #     raise ValueError("Contribution exceeds atom property value")
-                # print(point_contributions.shape)
-
-                full_contributions = np.zeros(grid_points.shape[0], dtype=np.float32)
-                full_contributions[mask] = point_contributions
-
-                # NOTE - apparently meshgrid indexes weirdly so we reshape with y, x, z
-                # point_contributions_shaped = point_contributions.reshape(
-                #     y_gridcount, x_gridcount, z_gridcount
-                # )
-                # point_contributions_shaped = np.transpose(
-                #     point_contributions_shaped, (1, 0, 2)
-                # )
-
-                contrib_shaped = full_contributions.reshape(
-                    x_gridcount, y_gridcount, z_gridcount
-                )
-                # print(f"Max contrib shaped for atom {atom_idx}:", np.max(contrib_shaped))
-                # print(f"Min contrib shaped for atom {atom_idx}:", np.min(contrib_shaped))
-                # property_grid += np.transpose(contrib_shaped, (1, 0, 2)).astype(np.float16)
-
-                property_grid += contrib_shaped.astype(np.float16)
-                # print("Max property grid value:", np.max(property_grid))
+            # 9. Reshape to grid
+            # property_grid: Shape (x_gridcount, y_gridcount, z_gridcount)
+            property_grid = property_grid_flat.reshape(
+                x_gridcount, y_gridcount, z_gridcount
+            ).astype(np.float16)
 
             # Apply threshold per property and store
             property_grid[np.abs(property_grid) < threshold[key]] = 0.0
@@ -394,7 +365,11 @@ def create_grid(
 
 
 def to_dxgrid(
-    grids: list[Grid] | Grid | npt.NDArray | dict[str, npt.NDArray] | list[dict[str, npt.NDArray] | Grid],
+    grids: list[Grid]
+    | Grid
+    | npt.NDArray
+    | dict[str, npt.NDArray]
+    | list[dict[str, npt.NDArray] | Grid],
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
     spacing: float = 0.5,
     filename: str = "output",
@@ -424,7 +399,6 @@ def to_dxgrid(
     if not isinstance(grids, list):
         grids = [grids]
 
-
     for i, grid in enumerate(grids):
         npgrid = None
         origin_val = None
@@ -432,7 +406,7 @@ def to_dxgrid(
         mol_name = ""
         mol_smiles = ""
 
-        if hasattr(grid, 'npGrid'):
+        if hasattr(grid, "npGrid"):
             # It is a Grid object
             npgrid = grid.npGrid
             props = grid.grid_props
@@ -456,10 +430,10 @@ def to_dxgrid(
             dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
             dx.add("connections", OpenDX.gridconnections(2, val.shape))
             dx.add("data", OpenDX.array(3, val))
-            
+
             output_filename = f"{key}_{mol_name}.dx"
             output_file = grids_dir / output_filename
             dx.write(str(output_file))
-            
-            if hasattr(grid, 'dxGrid'):
+
+            if hasattr(grid, "dxGrid"):
                 grid.dxGrid = dx
