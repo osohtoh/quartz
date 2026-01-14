@@ -393,24 +393,73 @@ def create_grid(
     return grids
 
 
-def to_dxgrid(grids: list[Grid]):
+def to_dxgrid(
+    grids: list[Grid] | Grid | npt.NDArray | dict[str, npt.NDArray] | list[dict[str, npt.NDArray] | Grid],
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    spacing: float = 0.5,
+    filename: str = "output",
+):
+    grids_dir = Path("grids")
+    grids_dir.mkdir(exist_ok=True)
+
+    if isinstance(grids, np.ndarray):
+        val = grids
+        if val.ndim != 3:
+            raise ValueError("Input array must be 3D")
+
+        origin_val = np.array(origin)
+        delta = np.diag([spacing, spacing, spacing])
+
+        dx = OpenDX.field(filename)
+        dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
+        dx.add("connections", OpenDX.gridconnections(2, val.shape))
+        dx.add("data", OpenDX.array(3, val))
+
+        if not filename.endswith(".dx"):
+            filename += ".dx"
+        output_file = grids_dir / filename
+        dx.write(str(output_file))
+        return
+
     if not isinstance(grids, list):
         grids = [grids]
 
-    for grid in grids:
-        npgrid = grid.npGrid
-        props = grid.grid_props
-        origin = np.array(props[3])
-        delta = np.diag([props[4], props[4], props[4]])
 
-        grids_dir = Path("grids")
-        grids_dir.mkdir(exist_ok=True)
+    for i, grid in enumerate(grids):
+        npgrid = None
+        origin_val = None
+        delta = None
+        mol_name = ""
+        mol_smiles = ""
+
+        if hasattr(grid, 'npGrid'):
+            # It is a Grid object
+            npgrid = grid.npGrid
+            props = grid.grid_props
+            origin_val = np.array(props[3])
+            delta = np.diag([props[4], props[4], props[4]])
+            mol_name = grid.mol_data.filename
+            mol_smiles = grid.mol_data.smiles
+        elif isinstance(grid, dict):
+            # It is a dictionary of arrays (e.g. from grid_stddev)
+            npgrid = grid
+            origin_val = np.array(origin)
+            delta = np.diag([spacing, spacing, spacing])
+            mol_name = f"{filename}_{i}" if len(grids) > 1 else filename
+            mol_smiles = filename
+        else:
+            print(f"Warning: Skipping unsupported grid type: {type(grid)}")
+            continue
 
         for key, val in npgrid.items():
-            dx = OpenDX.field(grid.mol_data.smiles)
-            dx.add("positions", OpenDX.gridpositions(1, val.shape, origin, delta))
+            dx = OpenDX.field(mol_smiles)
+            dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
             dx.add("connections", OpenDX.gridconnections(2, val.shape))
             dx.add("data", OpenDX.array(3, val))
-            output_file = grids_dir / f"{key}_{grid.mol_data.filename}.dx"
+            
+            output_filename = f"{key}_{mol_name}.dx"
+            output_file = grids_dir / output_filename
             dx.write(str(output_file))
-            grid.dxGrid = dx
+            
+            if hasattr(grid, 'dxGrid'):
+                grid.dxGrid = dx
