@@ -65,15 +65,10 @@ def extract_props(temp_dir: Path, basename: str):
     # FIXME - change so it uses the json file
 
     # Process .out file
-    with open(
-        temp_dir / f"{basename}.properties.out", "r", encoding="utf-8"
-    ) as f:
+    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = (
-            lines.index(
-                "     #   Z          covCN         q      C6AA      α(0)\n"
-            )
-            + 1
+            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
         )
         end_idx = lines.index("\n", start_idx)
         for line in lines[start_idx:end_idx]:
@@ -142,11 +137,29 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
         if total_sum == 0 or np.isinf(total_sum):
             prop_overlap[key] = np.nan
         else:
-            prop_overlap[key] = np.round(
-                1 - (total_diff / (len(combs) * total_sum)), 4
-            )
+            prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
 
     return prop_overlap
+
+def pair_overlap(main_grids: dict[str, npt.NDArray], grids: list[Grid]):
+    overlap: dict[str, dict[str, float]] = {}
+
+    for prop, grid in main_grids.items():
+        overlap[prop] = {}
+        for g in grids:
+            np_grid = g.npGrid[prop].astype(np.float64)
+
+            total_diff = np.sum(np.abs(np_grid - grid))
+            total_sum = np.sum(np.abs(np_grid)) + np.sum(np.abs(grid))
+
+            if total_sum == 0 or np.isinf(total_sum):
+                overlap[prop][g.mol_data.pdb_code] = np.nan
+            else:
+                overlap[prop][g.mol_data.pdb_code] = np.round(
+                    1 - (total_diff / total_sum), 4
+                )
+
+    return overlap
 
 def calculate_average(
     grids: list[Grid], props: list[str]
@@ -154,9 +167,7 @@ def calculate_average(
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array(
-            [grid.npGrid[key].astype(np.float64) for grid in grids]
-        )
+        np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
 
         prop_averages[key] = np.mean(np_grids, axis=0)
 
@@ -170,23 +181,25 @@ def calculate_boltz_avg(
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
     for key in props:
         grid_vals = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
-        
+
         # LSE, beta is some scaling factor
         max_val = np.max(-beta * grid_vals, axis=0, keepdims=True)
-        exp_vals = np.exp(-beta * grid_vals - max_val)  
+        exp_vals = np.exp(-beta * grid_vals - max_val)
         partition_fn = np.sum(exp_vals, axis=0)
-        
+
         probabilities = exp_vals / partition_fn
         boltz_avg = np.sum(probabilities * grid_vals, axis=0)
-        
+
         prop_averages[key] = boltz_avg
 
     return prop_averages
 
 
-def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> dict[str, npt.NDArray[np.float64]]:
+def calculate_pki_avg(
+    grids: list[Grid], props: list[str], drop_nans=True
+) -> dict[str, npt.NDArray[np.float64]]:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
-    
+
     valid_pairs = []
     for grid in grids:
         pki = grid.mol_data.pki
@@ -200,17 +213,21 @@ def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> di
     for key in props:
         if not valid_pairs:
             continue
-        pki_weighted_avg = np.mean([grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0)
+        pki_weighted_avg = np.mean(
+            [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
+        )
         prop_averages[key] = pki_weighted_avg
     return prop_averages
 
-def grid_stddev(grid: list[Grid], props: list[str]) -> dict[str, npt.NDArray[np.float64]]:
+
+def grid_stddev(
+    grid: list[Grid], props: list[str]
+) -> dict[str, npt.NDArray[np.float64]]:
     prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array(
-            [g.npGrid[key].astype(np.float64) for g in grid]
-        )
+        np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
 
         prop_stddev[key] = np.std(np_grids, axis=0)
     return prop_stddev
+
