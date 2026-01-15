@@ -2,11 +2,12 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from gridData import Grid, OpenDX
+from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
 from scipy.spatial.distance import cdist
 
+from quartz.data import MoleculeData, Grid
 
 def get_grid_size_for_dataset(
     mol_data: list[MoleculeData], size: float, padding: float

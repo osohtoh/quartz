@@ -221,13 +221,15 @@ def calculate_pki_avg(
 
 
 def grid_stddev(
-    grid: list[Grid], props: list[str]
+    grid: list[Grid], props: list[str], means: dict[str, npt.NDArray[np.float64]] | None = None
 ) -> dict[str, npt.NDArray[np.float64]]:
     prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
         np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
-
-        prop_stddev[key] = np.std(np_grids, axis=0)
+        if means:
+            prop_stddev[key] = np.std(np_grids, mean=means[key], axis=0)
+        else:
+            prop_stddev[key] = np.std(np_grids, axis=0)
     return prop_stddev
 
