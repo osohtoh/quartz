@@ -65,10 +65,15 @@ def extract_props(temp_dir: Path, basename: str):
     # FIXME - change so it uses the json file
 
     # Process .out file
-    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
+    with open(
+        temp_dir / f"{basename}.properties.out", "r", encoding="utf-8"
+    ) as f:
         lines = f.readlines()
         start_idx = (
-            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
+            lines.index(
+                "     #   Z          covCN         q      C6AA      α(0)\n"
+            )
+            + 1
         )
         end_idx = lines.index("\n", start_idx)
         for line in lines[start_idx:end_idx]:
@@ -114,6 +119,7 @@ def extract_props(temp_dir: Path, basename: str):
 
 
 def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
+    """ """
     prop_overlap: dict[str, float] = {}
 
     for key in props:
@@ -137,9 +143,12 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
         if total_sum == 0 or np.isinf(total_sum):
             prop_overlap[key] = np.nan
         else:
-            prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
+            prop_overlap[key] = np.round(
+                1 - (total_diff / (len(combs) * total_sum)), 4
+            )
 
     return prop_overlap
+
 
 def pair_overlap(main_grids: dict[str, npt.NDArray], grids: list[Grid]):
     overlap: dict[str, dict[str, float]] = {}
@@ -161,13 +170,16 @@ def pair_overlap(main_grids: dict[str, npt.NDArray], grids: list[Grid]):
 
     return overlap
 
+
 def calculate_average(
     grids: list[Grid], props: list[str]
 ) -> dict[str, npt.NDArray[np.float64]]:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
+        np_grids = np.array(
+            [grid.npGrid[key].astype(np.float64) for grid in grids]
+        )
 
         prop_averages[key] = np.mean(np_grids, axis=0)
 
@@ -176,11 +188,21 @@ def calculate_average(
 
 # TODO - make use of docking score or \DeltaG = -RTlnK as the energy for boltzmann
 def calculate_boltz_avg(
-    grids: list[Grid], props: list[str], beta: float = 1.0
+    grids: list[Grid],
+    props: list[str],
+    energy_keys: list[str],
+    beta: float = 1.0,
 ) -> dict[str, npt.NDArray[np.float64]]:
+    """
+    Function calculating Boltzmann-weighted average of grid properties. Values used for energies are specified in `energy_keys` and are retrieved from `mol_data.extra` of a `MoleculeData` object.
+    energy_keys: list of keys in mol_data.extra to sum for energy calculation
+    """
+
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
     for key in props:
-        grid_vals = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
+        grid_vals = np.array(
+            [grid.npGrid[key].astype(np.float64) for grid in grids]
+        )
 
         # LSE, beta is some scaling factor
         max_val = np.max(-beta * grid_vals, axis=0, keepdims=True)
@@ -221,7 +243,9 @@ def calculate_pki_avg(
 
 
 def grid_stddev(
-    grid: list[Grid], props: list[str], means: dict[str, npt.NDArray[np.float64]] | None = None
+    grid: list[Grid],
+    props: list[str],
+    means: dict[str, npt.NDArray[np.float64]] | None = None,
 ) -> dict[str, npt.NDArray[np.float64]]:
     prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
 
@@ -232,4 +256,3 @@ def grid_stddev(
         else:
             prop_stddev[key] = np.std(np_grids, axis=0)
     return prop_stddev
-

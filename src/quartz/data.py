@@ -18,6 +18,7 @@ class MoleculeData:
     pdb_code: str = ""
     ki: float | None = None
     pki: float | None = None
+    extra: dict[str, Any] | None = None
 
 
 @dataclass
