@@ -190,7 +190,7 @@ def calculate_average(
 def calculate_boltz_avg(
     grids: list[Grid],
     props: list[str],
-    energy_keys: list[str],
+    energy_key: str,
     beta: float = 1.0,
 ) -> dict[str, npt.NDArray[np.float64]]:
     """
@@ -199,18 +199,24 @@ def calculate_boltz_avg(
     """
 
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
+    try:
+        energies = np.array([float(grid.mol_data.extra[energy_key]) for grid in grids])
+        print("Energies: ", energies)
+    except Exception as e:
+        raise ValueError(f"Error retrieving energies using key '{energy_key}': {e}")
+    
+    max_val = np.max(-beta * energies, keepdims=True)
+    exp_vals = np.exp(-beta * energies - max_val)
+    partition_fn = np.sum(exp_vals)
+    print("Partition function: ", partition_fn)
+    prob = exp_vals / partition_fn
+    print("Probabilities: ", prob)
+
     for key in props:
-        grid_vals = np.array(
-            [grid.npGrid[key].astype(np.float64) for grid in grids]
-        )
+        scaled_grids = np.array([grid.npGrid[key].astype(np.float64) * p for grid, p in zip(grids, prob)])
+        boltz_avg = np.mean(scaled_grids, axis=0)
 
-        # LSE, beta is some scaling factor
-        max_val = np.max(-beta * grid_vals, axis=0, keepdims=True)
-        exp_vals = np.exp(-beta * grid_vals - max_val)
-        partition_fn = np.sum(exp_vals, axis=0)
-
-        probabilities = exp_vals / partition_fn
-        boltz_avg = np.sum(probabilities * grid_vals, axis=0)
+        print(f"Boltzmann average for {key}: ", boltz_avg)
 
         prop_averages[key] = boltz_avg
 
