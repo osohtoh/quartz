@@ -14,6 +14,7 @@ from rdkit.Chem.rdmolfiles import (
     MolToXYZBlock,
 )
 from rdkit.Chem.rdmolops import AddHs
+import psi4
 
 
 def optimize(smiles: str) -> str:
@@ -82,3 +83,7 @@ def get_mol(path: str) -> Mol:
 
 def get_pdb_charge(path: str) -> int:
     pass
+
+def psiwfn_to_fchk(wfn_path):
+    wfn = psi4.core.Wavefunction.from_file(wfn_path)
+    psi4.driver.fchk(wfn, str(wfn_path).replace('.npy', '.fchk'))
