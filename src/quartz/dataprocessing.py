@@ -124,48 +124,8 @@ def extract_props(temp_dir: Path, basename: str):
 # SECTION - Calculation functions
 
 
-def calculate_overlap_arrays(arrays: list[npt.NDArray]) -> float:
-    """Calculates the average overlap for a list of arrays."""
-    np_grids = [g.astype(np.float64) for g in arrays]
-    combs = list(combinations(np_grids, 2))
-
-    if len(combs) == 0:
-        return np.nan
-
-    # Calculate differences pairwise to avoid huge arrays
-    total_diff = 0.0
-    for a, b in combs:
-        total_diff += np.sum(np.abs(a - b))
-
-    # Sum all grids
-    total_sum = sum(np.sum(np.abs(g)) for g in np_grids)
-
-    # Avoid division by zero
-    if total_sum == 0 or np.isinf(total_sum):
-        return np.nan
-    else:
-        return np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
 
 
-def pair_overlap_arrays(
-    reference: npt.NDArray, targets: list[npt.NDArray]
-) -> list[float]:
-    """Calculates overlap between a reference array and a list of target arrays."""
-    scores = []
-    ref_grid = reference.astype(np.float64)
-
-    for t in targets:
-        np_grid = t.astype(np.float64)
-
-        total_diff = np.sum(np.abs(np_grid - ref_grid))
-        total_sum = np.sum(np.abs(np_grid)) + np.sum(np.abs(ref_grid))
-
-        if total_sum == 0 or np.isinf(total_sum):
-            scores.append(np.nan)
-        else:
-            scores.append(np.round(1 - (total_diff / total_sum), 4))
-
-    return scores
 
 
 def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
@@ -200,21 +160,22 @@ def calculate_overlap(grids: list[Grid], props: list[str]) -> dict[str, float]:
     return prop_overlap
 
 
-def pair_overlap(main_grids: dict[str, npt.NDArray], grids: list[Grid]):
+def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, float]]:
     overlap: dict[str, dict[str, float]] = {}
 
-    for prop, grid in main_grids.items():
+    for prop, grid in reference.npGrid.items():
         overlap[prop] = {}
-        for g in grids:
+        for g in targets:
             np_grid = g.npGrid[prop].astype(np.float64)
+            target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
 
             total_diff = np.sum(np.abs(np_grid - grid))
             total_sum = np.sum(np.abs(np_grid)) + np.sum(np.abs(grid))
 
             if total_sum == 0 or np.isinf(total_sum):
-                overlap[prop][g.mol_data.pdb_code] = np.nan
+                overlap[prop][target_id] = np.nan
             else:
-                overlap[prop][g.mol_data.pdb_code] = np.round(
+                overlap[prop][target_id] = np.round(
                     1 - (total_diff / total_sum), 4
                 )
 
@@ -223,7 +184,7 @@ def pair_overlap(main_grids: dict[str, npt.NDArray], grids: list[Grid]):
 
 def calculate_average(
     grids: list[Grid], props: list[str]
-) -> dict[str, npt.NDArray[np.float64]]:
+) -> Grid:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
@@ -233,7 +194,7 @@ def calculate_average(
 
         prop_averages[key] = np.mean(np_grids, axis=0)
 
-    return prop_averages
+    return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
 
 
 # TODO - make use of docking score or \DeltaG = -RTlnK as the energy for boltzmann
@@ -242,7 +203,7 @@ def calculate_boltz_avg(
     props: list[str],
     energy_key: str,
     beta: float = 1.0,
-) -> dict[str, npt.NDArray[np.float64]]:
+) -> Grid:
     """
     Function calculating Boltzmann-weighted average of grid properties. Values used for energies are specified in `energy_keys` and are retrieved from `mol_data.extra` of a `MoleculeData` object.
     energy_keys: list of keys in mol_data.extra to sum for energy calculation
@@ -250,15 +211,25 @@ def calculate_boltz_avg(
 
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
     try:
-        energies = np.array(
-            [float(grid.mol_data.extra[energy_key]) for grid in grids]
-        )
+        energies = []
+        valid_grids = []
+        for grid in grids:
+            if grid.mol_data and grid.mol_data.extra and energy_key in grid.mol_data.extra:
+                energies.append(float(grid.mol_data.extra[energy_key]))
+                valid_grids.append(grid)
+            else:
+                raise ValueError(
+                    f"Energy key '{energy_key}' not found in mol_data.extra for grid: {grid.mol_data.filename}"
+                )
+        
+        energies = np.array(energies)
         # print("Energies: ", energies)
     except Exception as e:
         raise ValueError(
             f"Error retrieving energies using key '{energy_key}': {e}"
         )
 
+    # Log-sum-exp
     max_val = np.max(-beta * energies, keepdims=True)
     exp_vals = np.exp(-beta * energies - max_val)
     partition_fn = np.sum(exp_vals)
@@ -279,23 +250,26 @@ def calculate_boltz_avg(
 
         prop_averages[key] = boltz_avg
 
-    return prop_averages
+    return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
 
 
 def calculate_pki_avg(
     grids: list[Grid], props: list[str], drop_nans=True
-) -> dict[str, npt.NDArray[np.float64]]:
+) -> Grid:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     valid_pairs = []
     for grid in grids:
-        pki = grid.mol_data.pki
+        pki = grid.pki # Use property
         if not np.isnan(pki):
             # print(pki)
             valid_pairs.append((grid, pki))
         elif not drop_nans:
             # print("appending nan")
             valid_pairs.append((grid, np.nan))
+
+    if not valid_pairs:
+        raise ValueError("No Grid-pKi pairs found")
 
     for key in props:
         if not valid_pairs:
@@ -304,14 +278,15 @@ def calculate_pki_avg(
             [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
         )
         prop_averages[key] = pki_weighted_avg
-    return prop_averages
+    
+    return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
 
 
 def grid_stddev(
     grid: list[Grid],
     props: list[str],
-    means: dict[str, npt.NDArray[np.float64]] | None = None,
-) -> dict[str, npt.NDArray[np.float64]]:
+    means: Grid | None = None,
+) -> Grid:
     prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
@@ -320,21 +295,21 @@ def grid_stddev(
             # using np.isclose because of float magic around 0.0
             prop_stddev[key] = np.nan_to_num(np.nanstd(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids),
-                mean=means[key],
+                mean=means.npGrid[key],
                 axis=0,
             ))
         else:
             prop_stddev[key] = np.nan_to_num(np.nanstd(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
             ))
-    return prop_stddev
+    return Grid(npGrid=prop_stddev, grid_props=grid[0].grid_props)
 
 
 def grid_abs_stddev(
     grid: list[Grid],
     props: list[str],
-    means: dict[str, npt.NDArray[np.float64]] | None = None,
-) -> dict[str, npt.NDArray[np.float64]]:
+    means: Grid | None = None,
+) -> Grid:
     prop_stddev: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
@@ -343,21 +318,21 @@ def grid_abs_stddev(
             # using np.isclose because of float magic around 0.0
             prop_stddev[key] = np.nan_to_num(np.nanstd(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids),
-                mean=np.abs(means[key]),
+                mean=np.abs(means.npGrid[key]),
                 axis=0,
             ))
         else:
             prop_stddev[key] = np.nan_to_num(np.nanstd(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
             ))
-    return prop_stddev
+    return Grid(npGrid=prop_stddev, grid_props=grid[0].grid_props)
 
 
 def grid_variance(
     grid: list[Grid],
     props: list[str],
-    means: dict[str, npt.NDArray[np.float64]] | None = None,
-) -> dict[str, npt.NDArray[np.float64]]:
+    means: Grid | None = None,
+) -> Grid:
     prop_variance: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
@@ -366,14 +341,14 @@ def grid_variance(
             # using np.isclose because of float magic around 0.0
             prop_variance[key] = np.nan_to_num(np.nanvar(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids),
-                mean=means[key],
+                mean=means.npGrid[key],
                 axis=0,
             ))
         else:
             prop_variance[key] = np.nan_to_num(np.nanvar(
                 np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
             ))
-    return prop_variance
+    return Grid(npGrid=prop_variance, grid_props=grid[0].grid_props)
 
 def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     wcss = []
@@ -389,7 +364,7 @@ def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     optimal_k = np.argmax(second_deltas) + 2  # +2 to account for the diff offsets
     return int(optimal_k)
 
-def kmeans_clustering(grid: list[Grid], props: list[str], n_clusters: int | None = None):
+def kmeans_clustering(grid: list[Grid], props: list[str], n_clusters: int | None = None) -> Grid:
     clustering_results: dict[str, npt.NDArray[np.int32]] = {}
 
     for key in props:
@@ -403,7 +378,7 @@ def kmeans_clustering(grid: list[Grid], props: list[str], n_clusters: int | None
             grid[0].npGrid[key].shape
         )
 
-    return clustering_results
+    return Grid(npGrid=clustering_results, grid_props=grid[0].grid_props)
 
 def hdbscan_clustering(grid: list[Grid], props: list[str]):
     clustering_results: dict[str, Any] = {}

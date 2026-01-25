@@ -23,11 +23,23 @@ class MoleculeData:
 
 @dataclass
 class Grid:
-    npGrid: dict[str, npt.NDArray]
-    rdGrid: UniformGrid3D_
-    prop_map: list[tuple[int, str]]
-    points: list[Point3D]
-    point_idxs: list[tuple[int]]
+    npGrid: dict[str, npt.NDArray] = field(repr=False)
     grid_props: dict[str, Any]
-    mol_data: MoleculeData
+    rdGrid: UniformGrid3D_ | None = field(default=None, repr=False)
+    prop_map: list[tuple[int, str]] | None = None
+    points: list[Point3D] | None = None
+    point_idxs: list[tuple[int]] | None = None
+    mol_data: MoleculeData | None = None
     dxGrid: OpenDX.field | None = None
+
+    @property
+    def pki(self) -> float:
+        if self.mol_data and self.mol_data.pki is not None:
+            return self.mol_data.pki
+        return float("nan")
+
+    @property
+    def ki(self) -> float:
+        if self.mol_data and self.mol_data.ki is not None:
+            return self.mol_data.ki
+        return float("nan")

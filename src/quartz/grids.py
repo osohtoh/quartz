@@ -288,12 +288,12 @@ def create_grid(
 
         grids.append(
             Grid(
-                grid_prop_dict,
-                rd_grid,
-                prop_map_,
-                mol_points,
-                point_idxs,
-                grid_props,
+                npGrid=grid_prop_dict,
+                rdGrid=rd_grid,
+                prop_map=prop_map_,
+                points=mol_points,
+                point_idxs=point_idxs,
+                grid_props=grid_props,
                 mol_data=mol,
             )
         )
@@ -302,11 +302,7 @@ def create_grid(
 
 
 def to_dxgrid(
-    grids: list[Grid]
-    | Grid
-    | npt.NDArray
-    | dict[str, npt.NDArray]
-    | list[dict[str, npt.NDArray] | Grid],
+    grids: list[Grid] | Grid | npt.NDArray,
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
     spacing: float = 0.5,
     filename: str = "output",
@@ -314,63 +310,68 @@ def to_dxgrid(
     grids_dir = Path("grids")
     grids_dir.mkdir(exist_ok=True)
 
-    if isinstance(grids, np.ndarray):
-        val = grids
-        if val.ndim != 3:
+    grid_list: list[Grid] = []
+    
+    if isinstance(grids, list) and all(isinstance(g, Grid) for g in grids):
+        grid_list = grids # type: ignore
+    elif isinstance(grids, Grid):
+        grid_list = [grids]
+    elif isinstance(grids, np.ndarray):
+        if grids.ndim != 3:
             raise ValueError("Input array must be 3D")
+        
+        dummy_props = {
+            "origin": origin,
+            "size": spacing,
+        }
+        grid_list = [Grid(
+            npGrid={"data": grids},
+            grid_props=dummy_props,
+            mol_data=None 
+        )]
+    else:
+        raise ValueError("Invalid input type")
 
-        origin_val = np.array(origin)
-        delta = np.diag([spacing, spacing, spacing])
-
-        dx = OpenDX.field(filename)
-        dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
-        dx.add("connections", OpenDX.gridconnections(2, val.shape))
-        dx.add("data", OpenDX.array(3, val))
-
-        if not filename.endswith(".dx"):
-            filename += ".dx"
-        output_file = grids_dir / filename
-        dx.write(str(output_file))
-        return
-
-    if not isinstance(grids, list):
-        grids = [grids]
-
-    for i, grid in enumerate(grids):
-        npgrid = None
-        origin_val = None
-        delta = None
-        mol_name = ""
-        mol_smiles = ""
-
-        if hasattr(grid, "npGrid"):
-            # It is a Grid object
-            npgrid = grid.npGrid
-            props = grid.grid_props
+    for i, grid in enumerate(grid_list):
+        props = grid.grid_props
+        
+        # Origin
+        if props and "origin" in props:
             origin_val = np.array(props["origin"])
-            delta = np.diag([props["size"], props["size"], props["size"]])
-            mol_name = grid.mol_data.filename
-            mol_smiles = grid.mol_data.smiles
-        elif isinstance(grid, dict):
-            # It is a dictionary of arrays (e.g. from grid_stddev)
-            npgrid = grid
-            origin_val = np.array(origin)
-            delta = np.diag([spacing, spacing, spacing])
-            mol_name = f"{filename}_{i}" if len(grids) > 1 else filename
-            mol_smiles = filename
         else:
-            print(f"Warning: Skipping unsupported grid type: {type(grid)}")
-            continue
+            origin_val = np.array(origin)
+            
+        # Spacing/Size / Delta
+        if props and "size" in props:
+             s = props["size"]
+             delta = np.diag([s, s, s])
+        else:
+             delta = np.diag([spacing, spacing, spacing])
 
-        for key, val in npgrid.items():
-            dx = OpenDX.field(mol_smiles)
+        mol_identifier = ""
+        
+        if grid.mol_data:
+            mol_identifier = grid.mol_data.filename
+        else:
+            if len(grid_list) > 1:
+                mol_identifier = f"{filename}_{i}"
+            else:
+                mol_identifier = filename
+
+        for key, val in grid.npGrid.items():
+            if val is None: continue
+            
+            dx = OpenDX.field(mol_identifier)
             dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
             dx.add("connections", OpenDX.gridconnections(2, val.shape))
             dx.add("data", OpenDX.array(3, val))
 
-            output_filename = f"{key}_{mol_name}.dx"
+            safe_identifier = Path(mol_identifier).stem
+            output_filename = f"{key}_{safe_identifier}.dx"
             output_file = grids_dir / output_filename
+            
+            print(f"Writing {output_file}...")
             dx.write(str(output_file))
 
-            if hasattr(grid, "dxGrid"):
+            if grid.dxGrid is None:
                 grid.dxGrid = dx
