@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Bernard Kamiński"}
 ]
-requires-python = ">=3.13"
+requires-python = "==3.13"
 dependencies = []
 
 
@@ -25,6 +25,7 @@ numpy = ">=2.3.1"
 pint = ">=0.24.4"
 qcelemental = ">=0.29.0"
 rdkit = ">=2025.3.3"
+scikit-learn = ">=1.8.0,<2"
 
 [tool.pixi.feature.testing.dependencies]
 pytest = ">=8.4.1"
