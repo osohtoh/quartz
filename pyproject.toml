@@ -7,28 +7,41 @@ authors = [
     { name = "Bernard Kamiński"}
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "cclib>=1.8.1",
-    "griddataformats>=1.0.2",
-    "numpy>=2.3.1",
-    "pint>=0.24.4",
-    "qcelemental>=0.29.0",
-    "rdkit>=2025.3.3",
-]
+dependencies = []
 
-[project.optional-dependencies]
-ipykernel = [
-    "pandas>=2.3.3",
-]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-]
-jupyter = [
-    "ipykernel>=7.0.1",
-]
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tool.pixi.dependencies]
+cclib = ">=1.8.1"
+griddataformats = ">=1.0.2"
+numpy = ">=2.3.1"
+pint = ">=0.24.4"
+qcelemental = ">=0.29.0"
+rdkit = ">=2025.3.3"
+
+[tool.pixi.feature.testing.dependencies]
+pytest = ">=8.4.1"
+
+[tool.pixi.feature.testing.tasks]
+test = "pytest"
+
+[tool.pixi.feature.jupyter.dependencies]
+ipykernel = ">=7.0.1"
+pandas = ">=2.3.3"
+matplotlib = ">=3.10.8"
+openpyxl = ">=3.1.5"
+
+[tool.pixi.feature.jupyter.tasks]
+lab = "jupyter lab"
+
+[tool.pixi.environments]
+default = ["testing", "jupyter"]
+testing = ["testing"]
+jupyter = ["jupyter"]
