@@ -28,6 +28,6 @@ class Grid:
     prop_map: list[tuple[int, str]]
     points: list[Point3D]
     point_idxs: list[tuple[int]]
-    grid_props: list[list[float]]
+    grid_props: dict[str, Any]
     mol_data: MoleculeData
     dxGrid: OpenDX.field | None = None
