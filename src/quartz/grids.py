@@ -184,9 +184,9 @@ def create_grid(
     prop_map_: list[tuple[int, str]] = list(enumerate(props))
 
     # Pre-calculate grid points using broadcasting
-    np_xs = np.arange(origin[0], origin[0] + x_len, size, dtype=np.float32)
-    np_ys = np.arange(origin[1], origin[1] + y_len, size, dtype=np.float32)
-    np_zs = np.arange(origin[2], origin[2] + z_len, size, dtype=np.float32)
+    np_xs = origin[0] + np.arange(x_gridcount, dtype=np.float32) * size
+    np_ys = origin[1] + np.arange(y_gridcount, dtype=np.float32) * size
+    np_zs = origin[2] + np.arange(z_gridcount, dtype=np.float32) * size
 
     # We construct grid_points which is (N_grid, 3)
     np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
