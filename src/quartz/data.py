@@ -17,8 +17,6 @@ class MoleculeData:
     rdmol: Mol
     filename: str = ""
     pdb_code: str = ""
-    ki: float | None = None
-    pki: float | None = None
     extra: dict[str, Any] | None = None
 
 
@@ -35,21 +33,34 @@ class Grid:
 
     @property
     def pki(self) -> float:
-        if self.mol_data and self.mol_data.pki is not None:
-            return self.mol_data.pki
+        if self.mol_data and self.mol_data.extra and "pki" in self.mol_data.extra:
+            pki_val = self.mol_data.extra["pki"]
+            if pki_val is not None:
+                return pki_val
         return np.nan
 
     @property
     def ki(self) -> float:
-        if self.mol_data and self.mol_data.ki is not None:
-            return self.mol_data.ki
+        if self.mol_data and self.mol_data.extra and "ki" in self.mol_data.extra:
+            ki_val = self.mol_data.extra["ki"]
+            if ki_val is not None:
+                return ki_val
         return np.nan
 
     @property
     def weight(self) -> float:
-        if self.mol_data.extra["weight"] is not None:
-            return self.mol_data.extra["weight"]
+        if self.mol_data and self.mol_data.extra and "weight" in self.mol_data.extra:
+            weight_val = self.mol_data.extra["weight"]
+            if weight_val is not None:
+                return weight_val
         return np.nan
+    
+    @property
+    def extra(self) -> dict[str, Any] | None:
+        if self.mol_data and self.mol_data.extra:
+            return self.mol_data.extra
+        return None
+
 
 def pki_grid_scale(grid: Grid) -> Grid | None:
     if grid.pki is None or np.isnan(grid.pki):
@@ -60,3 +71,18 @@ def pki_grid_scale(grid: Grid) -> Grid | None:
         scaled_grids[key] = prop_grid * grid.pki
     grid_ret.npGrid = scaled_grids
     return grid_ret
+
+
+def set_weights(grids: list[Grid], weight_key: str) -> None:
+    values = [grid.extra[weight_key] for grid in grids]
+    # print("values: ", values)
+    weights = np.array(values) / np.nansum(values)
+    # print("weights: ", weights)
+    for i, grid in enumerate(grids):
+        if (
+            grid.mol_data is not None
+            and grid.mol_data.extra is not None
+            and "weight" not in grid.mol_data.extra
+        ):
+            # print("assigning weight: ", weights[i])
+            grid.mol_data.extra["weight"] = weights[i]

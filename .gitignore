@@ -15,3 +15,6 @@ tests/sample_data/*/temp_*
 
 # dx grids
 *.dx
+
+# csv
+*.csv

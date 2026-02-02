@@ -4314,8 +4314,9 @@ packages:
   timestamp: 1750615908735
 - pypi: ./pyMultiwfn
   name: pymultiwfn
-  version: 0.0.0
-  sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  version: 0.1.0
+  sha256: c4a98f6e130e4743a35a56211e103d013e74bcef093801579809fda0cc85b365
+  requires_python: '>3.8'
 - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.3.2-pyhcf101f3_0.conda
   sha256: 417fba4783e528ee732afa82999300859b065dc59927344b4859c64aae7182de
   md5: 3687cc0b82a8b4c17e1f0eb7e47163d5
