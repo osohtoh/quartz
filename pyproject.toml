@@ -20,7 +20,7 @@ pyMultiwfn = { path = "pyMultiwfn", editable = true}
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 preview = ["pixi-build"]
 
 [tool.pixi.dependencies]
@@ -31,6 +31,7 @@ pint = ">=0.24.4"
 qcelemental = ">=0.29.0"
 rdkit = ">=2025.3.3"
 scikit-learn = ">=1.8.0,<2"
+pytz = ">=2025.2,<2026"
 
 [tool.pixi.feature.testing.dependencies]
 pytest = ">=8.4.1"

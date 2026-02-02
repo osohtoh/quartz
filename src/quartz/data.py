@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 import numpy.typing as npt
+import numpy as np
 import qcelemental.models.types as qcelt
 from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
@@ -36,10 +37,26 @@ class Grid:
     def pki(self) -> float:
         if self.mol_data and self.mol_data.pki is not None:
             return self.mol_data.pki
-        return float("nan")
+        return np.nan
 
     @property
     def ki(self) -> float:
         if self.mol_data and self.mol_data.ki is not None:
             return self.mol_data.ki
-        return float("nan")
+        return np.nan
+
+    @property
+    def weight(self) -> float:
+        if self.mol_data.extra["weight"] is not None:
+            return self.mol_data.extra["weight"]
+        return np.nan
+
+def pki_grid_scale(grid: Grid) -> Grid | None:
+    if grid.pki is None or np.isnan(grid.pki):
+        return None
+    scaled_grids = {}
+    grid_ret = grid
+    for key, prop_grid in grid.npGrid.items():
+        scaled_grids[key] = prop_grid * grid.pki
+    grid_ret.npGrid = scaled_grids
+    return grid_ret
