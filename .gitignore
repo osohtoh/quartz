@@ -18,3 +18,5 @@ tests/sample_data/*/temp_*
 
 # csv
 *.csv
+
+.vscode/
