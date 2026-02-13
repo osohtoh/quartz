@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import qcelemental as qcel
+import psi4
 from rdkit.Chem.rdchem import Mol
 from rdkit.Chem.rdDetermineBonds import DetermineBonds
 from rdkit.Chem.rdDistGeom import EmbedMolecule
@@ -83,10 +84,7 @@ def get_mol(path: str) -> Mol:
 def get_pdb_charge(path: str) -> int:
     pass
 
+
 def psiwfn_to_fchk(wfn_path):
-    try:
-        import psi4
-    except ImportError:
-        raise ImportError("Psi4 is not installed. Cannot convert wfn to fchk.")
     wfn = psi4.core.Wavefunction.from_file(wfn_path)
-    psi4.driver.fchk(wfn, str(wfn_path).replace('.npy', '.fchk'))
+    psi4.driver.fchk(wfn, str(wfn_path).replace(".npy", ".fchk"))

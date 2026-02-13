@@ -1,3 +1,4 @@
+from shutil import rmtree
 from collections import defaultdict
 import os
 import subprocess
@@ -11,7 +12,6 @@ class WfnAnalysis:
         self.wfn_file = wfn_file  # fchk
         self.mwfn_path = mwfn_path
         self.temp_dir = tempfile.mkdtemp(prefix="temp_mwfn_")
-        print(self.temp_dir)
         self.props = defaultdict(list)
 
         if os.environ.get("Multiwfnpath") or os.path.exists(
@@ -20,7 +20,15 @@ class WfnAnalysis:
             self.mwfn_init = True
         else:
             self.mwfn_init = False
+
         self.split_so_wfn = self.split_so_alpha_beta()
+
+        # print(f"Original wfn:\t{self.wfn_file}")
+        # print(f"Temp dir:\t{self.temp_dir}")
+        # print(f"Split wfn:\t{self.split_so_wfn}")
+
+    def clean(self):
+        rmtree(self.temp_dir)
 
     def _process_mwfn_seq(self, input_seq):
         if self.mwfn_init:
@@ -73,9 +81,9 @@ class WfnAnalysis:
         """
         elements = []
         with self._get_mwfn() as mwfn:
-            mwfn.stdin.write(
-                "\n"
-            )  # FIXME - This needs to go as we expect settings.ini to be present
+            # mwfn.stdin.write(
+            #     "\n"
+            # )  # FIXME - This needs to go as we expect settings.ini to be present
             input_str = f"{self.split_so_wfn}\nq\n"
             outs, errs = mwfn.communicate(input=input_str)
 
@@ -109,7 +117,7 @@ class WfnAnalysis:
 
         # FIXME - Same here with ['']
         full_input_commands = self._process_mwfn_seq(
-            [self.wfn_file] + input_seq + atom_inputs + ["0", "q"]
+            [self.split_so_wfn] + input_seq + atom_inputs + ["0", "q"]
         )
         # print("Full input sequence for Multiwfn:\n", "\n".join(full_input_commands))
         # full_input_str = "\n".join(full_input_commands) + "\n"
