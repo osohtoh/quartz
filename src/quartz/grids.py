@@ -5,7 +5,7 @@ import numpy.typing as npt
 from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
-from scipy.spatial.distance import cdist
+from scipy.spatial import KDTree
 
 from quartz.data import MoleculeData, Grid
 
@@ -116,7 +116,6 @@ def create_grid_from_cub():
     pass
 
 
-# TODO - instead of 0.0 use None, maybe saves memory, sparse matrices
 def create_grid(
     mol_data: list[MoleculeData],
     props: list[str],
@@ -136,6 +135,9 @@ def create_grid(
         size (float, optional): Voxel size. Defaults to 1.0.
         padding (float, optional): Padding around the grid. Defaults to 5.0.
         threshold (dict[str, float] | float, optional): Threshold for property values, either a single float or a dict per property. Defaults to 0.01.
+        cutoff_dist (float, optional): Maximum distance for atom contributions. Defaults to 10.0.
+        clamp_dist (float, optional): Minimum distance (clamped) to avoid singularities. Defaults to 0.3.
+        falloff_exp (float, optional): Exponent for distance falloff. Defaults to 12.0.
 
     Returns:
         list[Grid]: List of grids, one for each molecule.
@@ -172,6 +174,8 @@ def create_grid(
     z_gridcount = int(np.ceil(z_len / size))
     print("Cell count: ", x_gridcount, y_gridcount, z_gridcount)
 
+    n_grid = x_gridcount * y_gridcount * z_gridcount
+
     grid_props = {
         "bounds_x": xyzs[0],  # [min_x, max_x]
         "bounds_y": xyzs[1],  # [min_y, max_y]
@@ -183,116 +187,80 @@ def create_grid(
 
     prop_map_: list[tuple[int, str]] = list(enumerate(props))
 
-    # Pre-calculate grid points using broadcasting
+    # Pre-calculate grid points: shape (N_grid, 3)
     np_xs = origin[0] + np.arange(x_gridcount, dtype=np.float32) * size
     np_ys = origin[1] + np.arange(y_gridcount, dtype=np.float32) * size
     np_zs = origin[2] + np.arange(z_gridcount, dtype=np.float32) * size
+    gx, gy, gz = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
+    grid_points = np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()]).astype(np.float32)
 
-    # We construct grid_points which is (N_grid, 3)
-    np_coords = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
-    # grid_points: Shape (N_grid_points, 3)
-    grid_points: npt.NDArray[np.float32] = np.vstack(
-        [np_coords[0].ravel(), np_coords[1].ravel(), np_coords[2].ravel()]
-    ).T.astype(np.float32)
+    # Build KDTree for grid points once (reused per molecule)
+    grid_tree = KDTree(grid_points)
 
     grids = []
     for mol in mol_data:
-        grid_prop_dict = {}
-        prop_map: enumerate[str] = enumerate(props)
-        # NOTE - not sure how reliable this is, possible solution is to recenter geometry from 0,0,0
-        rd_grid = UniformGrid3D(
-            x_len,
-            y_len,
-            z_len,
-            size,
-            offSet=Point3D(*origin),
-        )
-        print("Processing: ", mol.smiles)
+        print("Processing: ", mol.filename)
 
-        mol_points = [Point3D(j, k, l) for j, k, l in mol.coordinates]
-        # np_point_coords: Shape (N_atoms, 3)
-        np_point_coords: npt.NDArray[np.float32] = np.array(
-            [[j, k, l] for j, k, l in mol.coordinates], dtype=np.float32
-        )
+        # Atom coordinates: shape (N_atoms, 3)
+        np_point_coords = np.asarray(mol.coordinates, dtype=np.float32)
 
-        point_idxs: list[tuple[int]] = []
-        for j in mol_points:
-            idx = rd_grid.GetGridPointIndex(j)
-            point_idxs.append(rd_grid.GetGridIndices(idx))
+        # Atom grid indices via NumPy, clamped to valid grid bounds
+        point_idxs = np.round((np_point_coords - np.array(origin)) / size).astype(int)
+        point_idxs[:, 0] = np.clip(point_idxs[:, 0], 0, x_gridcount - 1)
+        point_idxs[:, 1] = np.clip(point_idxs[:, 1], 0, y_gridcount - 1)
+        point_idxs[:, 2] = np.clip(point_idxs[:, 2], 0, z_gridcount - 1)
 
-        props_np = []
+        # Vectorized property extraction: shape (N_props, N_atoms)
         rdMol: Mol = mol.rdmol
-        for j, key in prop_map:
-            temp = []
-            for idx in range(rdMol.GetNumAtoms()):
-                prop_val = float(rdMol.GetAtomWithIdx(idx).GetProp(key))
-                temp.append(prop_val)
-            props_np.append(temp)
-
-        # props_np: Shape (N_props, N_atoms)
-        props_np = np.array(props_np, dtype=np.float32)
-
-        # Calculate distances using scipy.spatial.distance.cdist
-        # grid_points: (N_grid, 3)
-        # np_point_coords: (N_atoms, 3)
-        # distances: Shape (N_grid, N_atoms)
-        distances: npt.NDArray[np.float32] = cdist(grid_points, np_point_coords).astype(
-            np.float32
+        n_atoms = rdMol.GetNumAtoms()
+        atoms = [rdMol.GetAtomWithIdx(i) for i in range(n_atoms)]
+        props_np = np.array(
+            [[float(a.GetProp(key)) for a in atoms] for key in props],
+            dtype=np.float32,
         )
 
+        # Sparse neighbor query via KDTree: returns a COO sparse matrix of shape
+        # (N_grid, N_atoms) containing only distances <= cutoff_dist, avoiding
+        # allocation of the full dense distance matrix.
+        atom_tree = KDTree(np_point_coords)
+        sparse_dist = grid_tree.sparse_distance_matrix(atom_tree, cutoff_dist, output_type="coo_matrix")
+
+        # Extract COO data: grid indices, atom indices, distances
+        gi = sparse_dist.row       # grid point indices
+        ai = sparse_dist.col       # atom indices
+        dists = np.asarray(sparse_dist.data, dtype=np.float32)
+
+        # Precompute property-independent falloff
+        safe_dists = np.maximum(dists, clamp_dist)
+        falloff = 1.0 / (np.power(safe_dists, falloff_exp) + 1e-10)
+
+        grid_prop_dict = {}
         for j, key in prop_map_:
-            atom_props: npt.NDArray[np.float32] = props_np[j, :]  # Shape (N_atoms,)
+            atom_props = props_np[j, :]  # (N_atoms,)
 
-            # 1. Mask cutoff
-            # mask: Shape (N_grid, N_atoms)
-            mask = distances < cutoff_dist
+            # Per-neighbor atom property and capped falloff
+            ap = atom_props[ai]
+            f = np.minimum(falloff, np.abs(ap))
 
-            # 2. Clamp distances
-            safe_distances = np.where(distances < clamp_dist, clamp_dist, distances)
+            # Contributions clipped to sign of atom_prop
+            contributions = np.clip(ap * f, np.minimum(0, ap), np.maximum(0, ap))
 
-            # 3. Calculate falloff
-            # falloff: Shape (N_grid, N_atoms)
-            falloff: npt.NDArray[np.float32] = 1.0 / (
-                np.power(safe_distances, falloff_exp) + 1e-10
-            )
+            # Scatter-add contributions into flat grid
+            property_grid_flat = np.zeros(n_grid, dtype=np.float32)
+            np.add.at(property_grid_flat, gi, contributions)
 
-            # 4. Cap falloff at |atom_prop|
-            abs_atom_props = np.abs(atom_props)
-            falloff = np.minimum(falloff, abs_atom_props)
-
-            # 5. Calculate contributions
-            # contributions: Shape (N_grid, N_atoms)
-            contributions: npt.NDArray[np.float32] = atom_props * falloff
-
-            # 6. Clip contributions based on sign of atom_prop
-            min_vals = np.minimum(0, atom_props)
-            max_vals = np.maximum(0, atom_props)
-            contributions = np.clip(contributions, min_vals, max_vals)
-
-            # 7. Apply mask (distances < cutoff)
-            contributions[~mask] = 0.0
-
-            # 8. Sum contributions across atoms for each grid point
-            # property_grid_flat: Shape (N_grid,)
-            property_grid_flat = np.sum(contributions, axis=1)
-
-            # 9. Reshape to grid
-            # property_grid: Shape (x_gridcount, y_gridcount, z_gridcount)
+            # Reshape and threshold
             property_grid = property_grid_flat.reshape(
                 x_gridcount, y_gridcount, z_gridcount
-            ).astype(np.float16)
-
-            # Apply threshold per property and store
+            )
             property_grid[np.abs(property_grid) < threshold[key]] = 0.0
             grid_prop_dict[key] = property_grid
 
         grids.append(
             Grid(
                 npGrid=grid_prop_dict,
-                rdGrid=rd_grid,
                 prop_map=prop_map_,
-                points=mol_points,
-                point_idxs=point_idxs,
+                point_idxs=[tuple(idx) for idx in point_idxs],
                 grid_props=grid_props,
                 mol_data=mol,
             )
