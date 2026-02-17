@@ -15,6 +15,7 @@ from rdkit.Chem.rdmolfiles import (
     MolToXYZBlock,
 )
 from rdkit.Chem.rdmolops import AddHs
+from scipy.constants import physical_constants
 
 
 def optimize(smiles: str) -> str:
@@ -88,3 +89,6 @@ def get_pdb_charge(path: str) -> int:
 def psiwfn_to_fchk(wfn_path):
     wfn = psi4.core.Wavefunction.from_file(wfn_path)
     psi4.driver.fchk(wfn, str(wfn_path).replace(".npy", ".fchk"))
+
+def angstrom_to_bohr(angstroms):
+    return angstroms / (physical_constants["Bohr radius"][0] * 1e10)
