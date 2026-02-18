@@ -12,6 +12,7 @@ from scipy import constants
 from sklearn.cluster import DBSCAN, KMeans
 
 from quartz.data import Grid, MoleculeData
+from scipy.spatial.distance import pdist, squareform
 
 # SECTION - xtb property extraction functions
 
@@ -183,8 +184,18 @@ def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, fl
 
     return overlap
 
+def all_grid_pairwise_distance(grids: list[Grid], props: list[str], absolute_vals: bool = True, metric: str = 'euclidean'):
+    prop_distances = {}
+    prop_distances_sum = {}
+    for key in props:
+        np_grids = np.array([grid.npGrid[key] for grid in grids])
+        if absolute_vals:
+            np_grids = np.abs(np_grids)
+        prop_distances[key] = squareform(pdist(np_grids, metric))
+        # prop_distances_sum[key] = 
+    return prop_distances
 
-def voxel_pair_overlap(reference: Grid, targets: list[Grid]):
+def voxel_pair_overlap(reference: Grid, targets: list[Grid], absolute_vals: bool = True):
     overlap = {}
     pass
 

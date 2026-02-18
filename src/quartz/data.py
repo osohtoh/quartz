@@ -12,7 +12,7 @@ from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D_
 class MoleculeData:
     atomic_numbers: qcelt.Array
     coordinates: qcelt.Array
-    res: dict[str, Any]
+    res: dict[str, Any] # xtb legacy thingy
     smiles: str
     rdmol: Mol
     filename: str = ""
