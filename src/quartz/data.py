@@ -54,7 +54,7 @@ class Grid:
             if weight_val is not None:
                 return weight_val
         return np.nan
-    
+
     @property
     def extra(self) -> dict[str, Any] | None:
         if self.mol_data and self.mol_data.extra:

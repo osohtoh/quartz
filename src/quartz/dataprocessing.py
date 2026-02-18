@@ -68,15 +68,10 @@ def extract_props(temp_dir: Path, basename: str):
     # FIXME - change so it uses the json file
 
     # Process .out file
-    with open(
-        temp_dir / f"{basename}.properties.out", "r", encoding="utf-8"
-    ) as f:
+    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = (
-            lines.index(
-                "     #   Z          covCN         q      C6AA      α(0)\n"
-            )
-            + 1
+            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
         )
         end_idx = lines.index("\n", start_idx)
         for line in lines[start_idx:end_idx]:
@@ -159,22 +154,16 @@ def calculate_overlap(
         if total_sum == 0 or np.isinf(total_sum):
             prop_overlap[key] = np.nan
         else:
-            prop_overlap[key] = np.round(
-                1 - (total_diff / (len(combs) * total_sum)), 4
-            )
+            prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
 
     return prop_overlap
 
 
-def calculate_voxel_overlap(
-    grids: list[Grid], props: list[str], min_contribs=10
-):
+def calculate_voxel_overlap(grids: list[Grid], props: list[str], min_contribs=10):
     pass
 
 
-def pair_overlap(
-    reference: Grid, targets: list[Grid]
-) -> dict[str, dict[str, float]]:
+def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, float]]:
     overlap: dict[str, dict[str, float]] = {}
 
     for prop, grid in reference.npGrid.items():
@@ -190,9 +179,7 @@ def pair_overlap(
             if total_sum == 0 or np.isinf(total_sum):
                 overlap[prop][target_id] = np.nan
             else:
-                overlap[prop][target_id] = np.round(
-                    1 - (total_diff / total_sum), 4
-                )
+                overlap[prop][target_id] = np.round(1 - (total_diff / total_sum), 4)
 
     return overlap
 
@@ -208,9 +195,7 @@ def calculate_average(
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array(
-            [grid.npGrid[key].astype(np.float64) for grid in grids]
-        )
+        np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
         n_mask = np.where(
             np.count_nonzero(np_grids, axis=0) > min_contribs, True, False
         )
@@ -253,9 +238,7 @@ def calculate_boltz_avg(
         energies = np.array(energies)
         # print("Energies: ", energies)
     except Exception as e:
-        raise ValueError(
-            f"Error retrieving energies using key '{energy_key}': {e}"
-        )
+        raise ValueError(f"Error retrieving energies using key '{energy_key}': {e}")
 
     # Log-sum-exp
     max_val = np.max(-beta * energies, keepdims=True)
@@ -267,10 +250,7 @@ def calculate_boltz_avg(
 
     for key in props:
         scaled_grids = np.array(
-            [
-                grid.npGrid[key].astype(np.float64) * p
-                for grid, p in zip(grids, prob)
-            ]
+            [grid.npGrid[key].astype(np.float64) * p for grid, p in zip(grids, prob)]
         )
         boltz_avg = np.mean(scaled_grids, axis=0)
 
@@ -298,9 +278,7 @@ def calculate_weighted_avg(grids: list[Grid], props: list[str]) -> Grid:
     return Grid(npGrid=weighted_prop_avgs, grid_props=grids[0].grid_props)
 
 
-def calculate_pki_avg(
-    grids: list[Grid], props: list[str], drop_nans=True
-) -> Grid:
+def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> Grid:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     valid_pairs = []
@@ -337,9 +315,7 @@ def grid_stddev(
 
     for key in props:
         np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
-        n_mask = np.where(
-            np.count_nonzero(np_grids, axis=0) > n_contribs, True, False
-        )
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
         np_grids[:, ~n_mask] = np.nan
 
         if means:
@@ -353,9 +329,7 @@ def grid_stddev(
             )
         else:
             prop_stddev[key] = np.nan_to_num(
-                np.nanstd(
-                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
-                )
+                np.nanstd(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
             )
     return Grid(npGrid=prop_stddev, grid_props=grid[0].grid_props)
 
@@ -380,9 +354,7 @@ def grid_variance(
             )
         else:
             prop_variance[key] = np.nan_to_num(
-                np.nanvar(
-                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
-                )
+                np.nanvar(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
             )
     return Grid(npGrid=prop_variance, grid_props=grid[0].grid_props)
 
@@ -418,9 +390,7 @@ def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     # Elbow method to determine optimal number of clusters
     deltas = np.diff(wcss)
     second_deltas = np.diff(deltas)
-    optimal_k = (
-        np.argmax(second_deltas) + 2
-    )  # +2 to account for the diff offsets
+    optimal_k = np.argmax(second_deltas) + 2  # +2 to account for the diff offsets
     return int(optimal_k)
 
 

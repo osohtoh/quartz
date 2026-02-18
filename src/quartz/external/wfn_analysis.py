@@ -156,10 +156,16 @@ class WfnAnalysis:
                     continue
 
                 # Detect section headers
-                if "Atomic polarizabilities estimated using Tkatchenko-Scheffler method:" in line:
+                if (
+                    "Atomic polarizabilities estimated using Tkatchenko-Scheffler method:"
+                    in line
+                ):
                     section = "pol"
                     continue
-                if "Atomic C6 coefficients estimated using Tkatchenko-Scheffler method:" in line:
+                if (
+                    "Atomic C6 coefficients estimated using Tkatchenko-Scheffler method:"
+                    in line
+                ):
                     section = "c6"
                     continue
 
@@ -173,7 +179,9 @@ class WfnAnalysis:
                         section = None
 
         except Exception as e:
-            print(f"Error parsing volume/polarizability/C6 results at line: '{curr_line}'")
+            print(
+                f"Error parsing volume/polarizability/C6 results at line: '{curr_line}'"
+            )
             raise Exception("Failed to parse volume/polarizability/C6 results.") from e
 
         if len(self.props["effectiveV"]) != len(self.props["freeV"]):
@@ -254,7 +262,7 @@ class WfnAnalysis:
             "18",
             "1",
         ]
-        
+
         with self._get_mwfn() as mwfn:
             outs, errs = mwfn.communicate(input=self._process_mwfn_seq(input_seq))
             print(outs)

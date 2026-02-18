@@ -7,7 +7,8 @@ from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
 from scipy.spatial import KDTree
 
-from quartz.data import MoleculeData, Grid
+from quartz.data import Grid, MoleculeData
+
 
 def get_grid_size_for_dataset(
     mol_data: list[MoleculeData], size: float, padding: float
@@ -192,7 +193,9 @@ def create_grid(
     np_ys = origin[1] + np.arange(y_gridcount, dtype=np.float32) * size
     np_zs = origin[2] + np.arange(z_gridcount, dtype=np.float32) * size
     gx, gy, gz = np.meshgrid(np_xs, np_ys, np_zs, indexing="ij")
-    grid_points = np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()]).astype(np.float32)
+    grid_points = np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()]).astype(
+        np.float32
+    )
 
     # Build KDTree for grid points once (reused per molecule)
     grid_tree = KDTree(grid_points)
@@ -223,11 +226,13 @@ def create_grid(
         # (N_grid, N_atoms) containing only distances <= cutoff_dist, avoiding
         # allocation of the full dense distance matrix.
         atom_tree = KDTree(np_point_coords)
-        sparse_dist = grid_tree.sparse_distance_matrix(atom_tree, cutoff_dist, output_type="coo_matrix")
+        sparse_dist = grid_tree.sparse_distance_matrix(
+            atom_tree, cutoff_dist, output_type="coo_matrix"
+        )
 
         # Extract COO data: grid indices, atom indices, distances
-        gi = sparse_dist.row       # grid point indices
-        ai = sparse_dist.col       # atom indices
+        gi = sparse_dist.row  # grid point indices
+        ai = sparse_dist.col  # atom indices
         dists = np.asarray(sparse_dist.data, dtype=np.float32)
 
         # Precompute property-independent falloff
@@ -279,45 +284,43 @@ def to_dxgrid(
     grids_dir.mkdir(exist_ok=True)
 
     grid_list: list[Grid] = []
-    
+
     if isinstance(grids, list) and all(isinstance(g, Grid) for g in grids):
-        grid_list = grids # type: ignore
+        grid_list = grids  # type: ignore
     elif isinstance(grids, Grid):
         grid_list = [grids]
     elif isinstance(grids, np.ndarray):
         if grids.ndim != 3:
             raise ValueError("Input array must be 3D")
-        
+
         dummy_props = {
             "origin": origin,
             "size": spacing,
         }
-        grid_list = [Grid(
-            npGrid={"data": grids},
-            grid_props=dummy_props,
-            mol_data=None 
-        )]
+        grid_list = [
+            Grid(npGrid={"data": grids}, grid_props=dummy_props, mol_data=None)
+        ]
     else:
         raise ValueError("Invalid input type")
 
     for i, grid in enumerate(grid_list):
         props = grid.grid_props
-        
+
         # Origin
         if props and "origin" in props:
             origin_val = np.array(props["origin"])
         else:
             origin_val = np.array(origin)
-            
+
         # Spacing/Size / Delta
         if props and "size" in props:
-             s = props["size"]
-             delta = np.diag([s, s, s])
+            s = props["size"]
+            delta = np.diag([s, s, s])
         else:
-             delta = np.diag([spacing, spacing, spacing])
+            delta = np.diag([spacing, spacing, spacing])
 
         mol_identifier = ""
-        
+
         if grid.mol_data:
             mol_identifier = grid.mol_data.filename
         else:
@@ -327,8 +330,9 @@ def to_dxgrid(
                 mol_identifier = filename
 
         for key, val in grid.npGrid.items():
-            if val is None: continue
-            
+            if val is None:
+                continue
+
             dx = OpenDX.field(mol_identifier)
             dx.add("positions", OpenDX.gridpositions(1, val.shape, origin_val, delta))
             dx.add("connections", OpenDX.gridconnections(2, val.shape))
@@ -337,7 +341,7 @@ def to_dxgrid(
             safe_identifier = Path(mol_identifier).stem
             output_filename = f"{key}_{safe_identifier}.dx"
             output_file = grids_dir / output_filename
-            
+
             print(f"Writing {output_file}...")
             dx.write(str(output_file))
 

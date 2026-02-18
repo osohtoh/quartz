@@ -67,17 +67,29 @@ class TestCreateGrid:
     def test_grid_values_snapshot(self, ethane):
         """Validate grid sums against baseline to detect regressions after refactor."""
         grids = create_grid(
-            [ethane], self.PROPS, size=1.0, padding=3.0,
-            threshold=0.01, cutoff_dist=10.0, clamp_dist=0.3, falloff_exp=12.0,
+            [ethane],
+            self.PROPS,
+            size=1.0,
+            padding=3.0,
+            threshold=0.01,
+            cutoff_dist=10.0,
+            clamp_dist=0.3,
+            falloff_exp=12.0,
         )
         g = grids[0]
-        sums = {key: float(np.sum(g.npGrid[key].astype(np.float64))) for key in self.PROPS}
+        sums = {
+            key: float(np.sum(g.npGrid[key].astype(np.float64))) for key in self.PROPS
+        }
         # Baseline values captured from pre-refactor run (float16 output)
         # rtol=0.01 allows for float16→float32 precision changes
         expected = {"charges": -0.0050048828125, "polarizibility": 18.31017303466797}
         for key in self.PROPS:
-            np.testing.assert_allclose(sums[key], expected[key], rtol=0.01,
-                                       err_msg=f"Regression in grid sum for {key}")
+            np.testing.assert_allclose(
+                sums[key],
+                expected[key],
+                rtol=0.01,
+                err_msg=f"Regression in grid sum for {key}",
+            )
 
     def test_multiple_molecules(self, ethane):
         ethane2 = _make_ethane_moldata()
