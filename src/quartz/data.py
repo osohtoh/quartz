@@ -86,3 +86,12 @@ def set_weights(grids: list[Grid], weight_key: str) -> None:
         ):
             # print("assigning weight: ", weights[i])
             grid.mol_data.extra["weight"] = weights[i]
+
+def weight_scale(grid: Grid) -> Grid:
+    if grid.weight is None or np.isnan(grid.weight):
+        return grid
+    scaled_grids = {}
+    for key, prop_grid in grid.npGrid.items():
+        scaled_grids[key] = prop_grid * grid.weight
+    grid.npGrid = scaled_grids
+    return grid

@@ -159,8 +159,36 @@ def calculate_overlap(
 
     return prop_overlap
 
+def dice_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str, float]]:
+    dice_coefs = {}
+    for prop, ref_grid in reference.npGrid.items():
+        dice_coefs[prop] = {}
+        for g in grids:
+            top = 2 * np.sum(ref_grid * g.npGrid[prop])
+            bottom = np.sum(ref_grid**2) + np.sum(g.npGrid[prop]**2)
+            target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
+            if bottom == 0:
+                dice_coefs[prop][target_id] = np.nan
+            else:
+                dice_coefs[prop][target_id] = np.round(top / bottom, 4)
+    return dice_coefs
+        
 
-def calculate_voxel_overlap(grids: list[Grid], props: list[str], min_contribs=10):
+def cosine_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str, float]]:
+    cosine_coefs = {}
+    for prop, ref_grid in reference.npGrid.items():
+        cosine_coefs[prop] = {}
+        for g in grids:
+            top = np.sum(ref_grid * g.npGrid[prop])
+            bottom = np.sqrt(np.sum(ref_grid**2) * np.sum(g.npGrid[prop]**2))
+            target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
+            if bottom == 0:
+                cosine_coefs[prop][target_id] = np.nan
+            else:
+                cosine_coefs[prop][target_id] = np.round(top / bottom, 4)
+    return cosine_coefs
+
+def calculate_voxel_overlap(grids: list[Grid], props: list[str], metric: str = 'euclidean', min_contribs=10):
     pass
 
 
@@ -184,6 +212,7 @@ def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, fl
 
     return overlap
 
+# FIXME - THIS IS TERRIBLY EXPENSIVE AND DOESNT EVEN WORK 
 def all_grid_pairwise_distance(grids: list[Grid], props: list[str], absolute_vals: bool = True, metric: str = 'euclidean'):
     prop_distances = {}
     prop_distances_sum = {}

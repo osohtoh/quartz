@@ -16,7 +16,6 @@ build-backend = "hatchling.build"
 
 [tool.pixi.pypi-dependencies]
 quartz = { path = ".", editable = true}
-pyMultiwfn = { path = "pyMultiwfn", editable = true}
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
