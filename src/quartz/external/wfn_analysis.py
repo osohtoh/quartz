@@ -1,9 +1,13 @@
+from pathlib import Path
 from shutil import rmtree
 from collections import defaultdict
 import os
 import re
 import subprocess
 import tempfile
+
+import numpy as np
+import numpy.typing as npt
 
 from quartz.data import Grid
 from quartz.utils import angstrom_to_bohr
@@ -13,8 +17,10 @@ class WfnAnalysis:
     def __init__(self, wfn_file: str, mwfn_path: str):
         self.wfn_file = wfn_file  # fchk
         self.mwfn_path = mwfn_path
-        self.temp_dir = tempfile.mkdtemp(prefix="temp_mwfn_")
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="temp_mwfn_"))
         self.props = defaultdict(list)
+        self.grid_props = Grid({}, {})
+        self.atoms = self.get_atom_list()
 
         if os.environ.get("Multiwfnpath") or os.path.exists(
             os.path.join(os.getcwd(), "settings.ini")
@@ -194,11 +200,109 @@ class WfnAnalysis:
                 f"Mismatch in number of polarizabilities ({len(self.props['polarizability'])}) and C6 coefficients ({len(self.props['c6'])}) calculated."
             )
 
-    def grid_properties(self, reference_grid: Grid):
+    def get_fchk_coords(self):
+        coords = []
+        with open(self.wfn_file, "r") as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                if line.startswith("Current cartesian coordinates"):
+                    n_coords = int(line.split()[-1])
+                    n_lines = int(np.ceil(n_coords / 5))
+                    coord_lines = lines[i + 1 : i + 1 + n_lines]
+                    for cl in coord_lines:
+                        coords.extend([float(x) for x in cl.split()])
+                    break
+        return np.array(coords).reshape(-1, 3)
+
+    def get_atom_list(self):
+        atoms = []
+        with open(self.wfn_file, "r") as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                if line.startswith("Atomic numbers"):
+                    n_atoms = int(line.split()[-1])
+                    n_lines = int(np.ceil(n_atoms / 6))
+                    atom_lines = lines[i + 1 : i + 1 + n_lines]
+                    for al in atom_lines:
+                        atoms.extend([int(x) for x in al.split()])
+                    break
+        return atoms
+
+    def generate_dummy_grid(self, reference_grid: Grid):
         """
         Calculate properties on a grid with Multiwfn. Use reference Grid object for grid origin, spacing and cell count.
+        This needs a empty Gaussian cube file to pass as an argument to Multiwfn so it can extract the dimensions and cell count.
+        dear god psi4 recenters molecules automatically so the grid is kill (wrong origin), would have to run it with no_reorient and no_com
         """
-        pass
+        import quartz.external.cubetools as ct
+
+        # Getting all coordinates to Bohr
+        pdb_coords_bohr = reference_grid.mol_data.coordinates * 1.8897259886
+
+        fchk_coords = self.get_fchk_coords()
+
+        # Calculate translation vector
+        pdb_center = np.mean(pdb_coords_bohr, axis=0)
+        fchk_center = np.mean(fchk_coords, axis=0)
+        translation_vector = pdb_center - fchk_center
+
+        ref_origin_bohr = np.array(
+            [angstrom_to_bohr(x) for x in reference_grid.grid_props["origin"]]
+        )
+
+        # Translate the grid origin to the fchk coordinate system
+        fchk_grid_origin = ref_origin_bohr - translation_vector
+
+        dummy_cube = self.temp_dir / "dummy_cube.cub"
+        bohr_spacing = angstrom_to_bohr(reference_grid.grid_props["size"])
+        meta = {
+            "atoms": [(6, [0.0, 0.0, 0.0, 0.0])],  # Atomic number, charge, X, Y, Z
+            "org": fchk_grid_origin,
+            "xvec": [bohr_spacing, 0, 0],
+            "yvec": [0, bohr_spacing, 0],
+            "zvec": [0, 0, bohr_spacing],
+        }
+        grid_key = list(reference_grid.npGrid.keys())[0]
+        empty_grid = np.zeros(reference_grid.npGrid[grid_key].shape)
+
+        ct.write_cube(empty_grid, meta, dummy_cube)
+
+    # def calculate_frontier_density_grid(self, reference_grid: Grid, output_file: str):
+    def calculate_frontier_density_grid(self, reference_grid: Grid):
+        """
+        Calculates the frontier orbitals probability density on the reference grid.
+        Automatically handles the coordinate translation between the PDB and fchk files.
+        """
+        import quartz.external.cubetools as ct
+
+        grid_dict: dict[str, npt.NDArray] = {}
+        mappings = {"h": "HOMO", "l": "LUMO"}
+
+        if not bool(self.grid_props.grid_props):
+            self.grid_props.grid_props = reference_grid.grid_props
+
+        self.generate_dummy_grid(reference_grid)
+        for orb in ["h", "l"]:
+            # out = orb + "_" + output_file
+            input_seq = self._process_mwfn_seq(
+                [self.wfn_file, "5", "44", orb, "8", "dummy_cube.cub", "2", "0", "q"]
+            )
+            with self._get_mwfn() as mwfn:
+                outs, errs = mwfn.communicate(input=input_seq)
+                # print("Multiwfn output: ", outs)
+
+            orbdens_cub = self.temp_dir / "orbdens.cub"
+            data, meta = ct.read_cube(str(orbdens_cub))
+            grid_dict[mappings[orb]] = data
+
+            ref_origin_bohr = np.array(
+                [angstrom_to_bohr(x) for x in reference_grid.grid_props["origin"]]
+            )
+            meta["org"] = ref_origin_bohr
+
+            # ct.write_cube(data, meta, out)
+
+        self.grid_props.npGrid |= grid_dict
 
     def homo_lumo_atom_contribs(self, partition: str = "Mul"):
         """
@@ -252,14 +356,13 @@ class WfnAnalysis:
         """
         7 -> 18 -> 1 -> 18
         check default values of a agains psiresp
-        FIXME - breaks on Bromine and Iodine
-        > vdW radius used in fitting for Br is missing, input it in Angstrom, e.g. 1.7
-        > Hint: If pressing ENTER button directly, corresponding UFF radii scaled by 1/1.2 will be used, which usually is a proper workaround. (If you want to automatically employ this treatment, setting "ispecial" in settings.ini to 1)
         """
         input_seq = [
             self.wfn_file,
             "7",
             "18",
+            "10",
+            "2", # set atomic radii to use UFF because of heavy elements
             "1",
         ]
 
