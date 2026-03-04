@@ -113,9 +113,6 @@ def read_cube_to_array(
     return target_array
 
 
-def create_grid_from_cub():
-    pass
-
 
 def create_grid(
     mol_data: list[MoleculeData],

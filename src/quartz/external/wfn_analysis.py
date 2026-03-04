@@ -86,10 +86,10 @@ class WfnAnalysis:
         6 -> 37 -> 0 (Save to new.wfn & Return) -> q (Quit)
         """
         input_seq = self._process_mwfn_seq([self.wfn_file, "6", "37", "0", "q"])
-        print(input_seq)
+        # print(input_seq)
         with self._get_mwfn() as mwfn:
             outs, errs = mwfn.communicate(input=input_seq)
-            print("Multiwfn output: ", outs)
+            # print("Multiwfn output: ", outs)
             # print("Multiwfn errors: ", errs)
         # self.wfn_file = os.path.join(self.temp_dir, "new.wfn")
         return os.path.join(self.temp_dir, "new.wfn")
@@ -142,8 +142,8 @@ class WfnAnalysis:
 
         with self._get_mwfn() as mwfn:
             outs, errs = mwfn.communicate(input=full_input_commands)
-        print("Multiwfn output: ", outs)
-        print("Multiwfn errors: ", errs)
+        # print("Multiwfn output: ", outs)
+        # print("Multiwfn errors: ", errs)
 
         lines = [l.strip() for l in outs.splitlines()]
 
@@ -281,7 +281,9 @@ class WfnAnalysis:
         if not bool(self.grid_props.grid_props):
             self.grid_props.grid_props = reference_grid.grid_props
 
-        self.generate_dummy_grid(reference_grid)
+        if not Path(self.temp_dir / "dummy_cube.cub").exists():
+            self.generate_dummy_grid(reference_grid)
+
         for orb in ["h", "l"]:
             # out = orb + "_" + output_file
             input_seq = self._process_mwfn_seq(
@@ -304,53 +306,26 @@ class WfnAnalysis:
 
         self.grid_props.npGrid |= grid_dict
 
-    def homo_lumo_atom_contribs(self, partition: str = "Mul"):
-        """
-        HOMO and LUMO densities/localizations on atoms.
-        8 -> (1, 2, 3 depending on partitioning scheme) -> [h, l] -> 0 -> -10 -> q
-        Contribs returned in %, divide by 100 for values from 0 to 1
-        """
-        partition_keys = {
-            "Mul": 1,  # Mulliken
-            "SP": 2,  # Stout-Politzer
-            "SCPA": 3,  # Ros-Schuit
-        }
+    def calculate_vdw_potential_grid(self, reference_grid: Grid):
+        import quartz.external.cubetools as ct
+
+        if not bool(self.grid_props.grid_props):
+            self.grid_props.grid_props = reference_grid.grid_props
+
+        if not Path(self.temp_dir / "dummy_cube.cub").exists():
+            self.generate_dummy_grid(reference_grid)
+
         input_seq = self._process_mwfn_seq(
-            [
-                self.wfn_file,
-                "8",
-                str(partition_keys[partition]),
-                "h",
-                "l",
-                "0",
-                "-10",
-                "q",
-            ]
+            [self.wfn_file, "5", "25", "8", "dummy_cube.cub", "2", "0", "q"]
         )
-        print(input_seq)
+
         with self._get_mwfn() as mwfn:
             outs, errs = mwfn.communicate(input=input_seq)
-            print(outs)
 
-        lines = outs.splitlines()
+        vdw_cub = self.temp_dir / "vdWpot.cub"
+        data, meta = ct.read_cube(str(vdw_cub))
 
-        homo_start = lines.index(" Composition of each atom:") + 1
-        print(homo_start)
-        homo_end = lines.index("", homo_start)
-        print(homo_end)
-
-        for line in lines[homo_start:homo_end]:
-            match = self.decimal_regex.search(line)
-            if match:
-                self.props["HOMO_contrib"].append(float(match.group(1)) / 100)
-
-        lumo_start = lines.index(" Composition of each atom:", homo_end) + 1
-        lumo_end = lines.index("", lumo_start)
-
-        for line in lines[lumo_start:lumo_end]:
-            match = self.decimal_regex.search(line)
-            if match:
-                self.props["LUMO_contrib"].append(float(match.group(1)) / 100)
+        self.grid_props.npGrid |= {"vdWpot": data}
 
     def resp_charges(self):
         """
@@ -362,13 +337,13 @@ class WfnAnalysis:
             "7",
             "18",
             "10",
-            "2", # set atomic radii to use UFF because of heavy elements
+            "2",  # set atomic radii to use UFF because of heavy elements
             "1",
         ]
 
         with self._get_mwfn() as mwfn:
             outs, errs = mwfn.communicate(input=self._process_mwfn_seq(input_seq))
-            print(outs)
+            # print(outs)
 
         lines = [line.strip() for line in outs.splitlines()]
         resp_start = lines.index("Center       Charge") + 1
