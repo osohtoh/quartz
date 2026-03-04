@@ -19,7 +19,7 @@ class MoleculeData:
     pdb_code: str = ""
     extra: dict[str, Any] | None = None
 
-
+# TODO - possible big thing, dict of ID: Grid
 @dataclass
 class Grid:
     npGrid: dict[str, npt.NDArray] = field(repr=False)
@@ -61,16 +61,32 @@ class Grid:
             return self.mol_data.extra
         return None
 
+    @property
+    def id_code(self) -> str:
+        if self.mol_data and self.mol_data.pdb_code:
+            return self.mol_data.pdb_code
+        elif self.mol_data and self.mol_data.filename:
+            return self.mol_data.filename
+        else:
+            return "unknown_id"
+
 
 def pki_grid_scale(grid: Grid) -> Grid | None:
     if grid.pki is None or np.isnan(grid.pki):
         return None
     scaled_grids = {}
-    grid_ret = grid
     for key, prop_grid in grid.npGrid.items():
         scaled_grids[key] = prop_grid * grid.pki
-    grid_ret.npGrid = scaled_grids
-    return grid_ret
+    return Grid(
+        npGrid=scaled_grids,
+        grid_props=grid.grid_props,
+        rdGrid=grid.rdGrid,
+        prop_map=grid.prop_map,
+        points=grid.points,
+        point_idxs=grid.point_idxs,
+        mol_data=grid.mol_data,
+        dxGrid=grid.dxGrid,
+    )
 
 
 def set_weights(grids: list[Grid], weight_key: str) -> None:

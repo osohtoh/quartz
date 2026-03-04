@@ -318,7 +318,13 @@ def calculate_weighted_avg(grids: list[Grid], props: list[str]) -> Grid:
     return Grid(npGrid=weighted_prop_avgs, grid_props=grids[0].grid_props)
 
 
-def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> Grid:
+def calculate_pki_avg(
+    grids: list[Grid],
+    props: list[str],
+    drop_nans=True,
+    n_contribs: int = 10,
+    pre_scaled: bool = False,
+) -> Grid:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     valid_pairs = []
@@ -337,9 +343,15 @@ def calculate_pki_avg(grids: list[Grid], props: list[str], drop_nans=True) -> Gr
     for key in props:
         if not valid_pairs:
             continue
-        pki_weighted_avg = np.mean(
-            [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
-        )
+        np_grids = np.array([grid.npGrid[key] for grid, _ in valid_pairs])
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
+        np_grids[:, ~n_mask] = np.nan
+        if pre_scaled:
+            pki_weighted_avg = np.mean([grid.npGrid[key] for grid, _ in valid_pairs], axis=0)
+        else:
+            pki_weighted_avg = np.mean(
+                [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
+            )
         prop_averages[key] = pki_weighted_avg
 
     return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
