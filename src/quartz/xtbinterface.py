@@ -10,7 +10,14 @@ from quartz.dataprocessing import extract_props
 from quartz.utils import xyz_to_mol
 
 
-def generate_input(input_path: Path, size: float, charge: int, uhf: int):
+def generate_input(
+    input_path: Path,
+    size: float,
+    charge: int,
+    uhf: int,
+    accuracy: float,
+    maxiter: int = 250,
+):
     input_file = Path(input_path) / "input.inp"
     if not input_file.exists():
         input = f"""$chrg {charge}
@@ -18,12 +25,10 @@ $spin {uhf}
 $gfn
    method=2
    scc=true
-   periodic=false
-   dispscale=1.000000000000000
 $scc
-   maxiterations=250
-   temp=300
-   broydamp=.4
+   maxiterations={maxiter}
+$hess
+   sccacc={accuracy}
 $cube
    step={size}
    cal=1
@@ -31,6 +36,7 @@ $write
    density=true
    spin population=true
    spin density=true
+   mos=true
    charges=true
    mulliken=true
    orbital energies=true
@@ -43,7 +49,9 @@ $end
         input_file.write_text(input)
 
 
-def get_props(input_geo: str, size: float = 1.0):
+def get_props(
+    input_geo: str, size: float = 1.0, accuracy: float = 1.0, maxiter: int = 250
+) -> dict:
     """ """
     # Create temp directory
     input_path = Path(input_geo)
@@ -66,7 +74,7 @@ def get_props(input_geo: str, size: float = 1.0):
     uhf = NumRadicalElectrons(rdmol)
 
     # Create input file if it doesn't exist
-    generate_input(temp_dir, size, charge, uhf)
+    generate_input(temp_dir, size, charge, uhf, accuracy, maxiter)
 
     file = input_path.name
 
@@ -122,7 +130,11 @@ def get_props(input_geo: str, size: float = 1.0):
         raise Exception("xTB calculation failed.")
 
     # Parse output and remove temp dir
+    # TODO - parse cube into np array
     out = extract_props(temp_dir, input_path.stem)
-    # shutil.rmtree(temp_dir)
+    with open(temp_dir / (input_path.stem + ".molden.input")) as f:
+        molden = f.readlines()
+    out["molden"] = molden
+    shutil.rmtree(temp_dir)
 
     return out
