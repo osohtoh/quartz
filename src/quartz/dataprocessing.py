@@ -1,15 +1,12 @@
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Literal
-from xml import parsers
+from typing import Literal
 
-from gridData import OpenDX
 import numpy as np
 import numpy.typing as npt
-import numpy.typing as npt
 from rdkit.Chem.rdchem import Mol
-from scipy import constants
-from sklearn.cluster import DBSCAN, KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.feature_extraction import grid_to_graph
 
 from quartz.data import Grid, MoleculeData
 from scipy.spatial.distance import pdist, squareform
@@ -69,10 +66,15 @@ def extract_props(temp_dir: Path, basename: str):
     # FIXME - change so it uses the json file
 
     # Process .out file
-    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
+    with open(
+        temp_dir / f"{basename}.properties.out", "r", encoding="utf-8"
+    ) as f:
         lines = f.readlines()
         start_idx = (
-            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
+            lines.index(
+                "     #   Z          covCN         q      C6AA      α(0)\n"
+            )
+            + 1
         )
         end_idx = lines.index("\n", start_idx)
         for line in lines[start_idx:end_idx]:
@@ -155,32 +157,39 @@ def calculate_overlap(
         if total_sum == 0 or np.isinf(total_sum):
             prop_overlap[key] = np.nan
         else:
-            prop_overlap[key] = np.round(1 - (total_diff / (len(combs) * total_sum)), 4)
+            prop_overlap[key] = np.round(
+                1 - (total_diff / (len(combs) * total_sum)), 4
+            )
 
     return prop_overlap
 
-def dice_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str, float]]:
+
+def dice_coefficient(
+    reference: Grid, grids: list[Grid]
+) -> dict[str, dict[str, float]]:
     dice_coefs = {}
     for prop, ref_grid in reference.npGrid.items():
         dice_coefs[prop] = {}
         for g in grids:
             top = 2 * np.sum(ref_grid * g.npGrid[prop])
-            bottom = np.sum(ref_grid**2) + np.sum(g.npGrid[prop]**2)
+            bottom = np.sum(ref_grid**2) + np.sum(g.npGrid[prop] ** 2)
             target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
             if bottom == 0:
                 dice_coefs[prop][target_id] = np.nan
             else:
                 dice_coefs[prop][target_id] = np.round(top / bottom, 4)
     return dice_coefs
-        
 
-def cosine_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str, float]]:
+
+def cosine_coefficient(
+    reference: Grid, grids: list[Grid]
+) -> dict[str, dict[str, float]]:
     cosine_coefs = {}
     for prop, ref_grid in reference.npGrid.items():
         cosine_coefs[prop] = {}
         for g in grids:
             top = np.sum(ref_grid * g.npGrid[prop])
-            bottom = np.sqrt(np.sum(ref_grid**2) * np.sum(g.npGrid[prop]**2))
+            bottom = np.sqrt(np.sum(ref_grid**2) * np.sum(g.npGrid[prop] ** 2))
             target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
             if bottom == 0:
                 cosine_coefs[prop][target_id] = np.nan
@@ -188,11 +197,19 @@ def cosine_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str
                 cosine_coefs[prop][target_id] = np.round(top / bottom, 4)
     return cosine_coefs
 
-def calculate_voxel_overlap(grids: list[Grid], props: list[str], metric: str = 'euclidean', min_contribs=10):
+
+def calculate_voxel_overlap(
+    grids: list[Grid],
+    props: list[str],
+    metric: str = "euclidean",
+    min_contribs=10,
+):
     pass
 
 
-def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, float]]:
+def pair_overlap(
+    reference: Grid, targets: list[Grid]
+) -> dict[str, dict[str, float]]:
     overlap: dict[str, dict[str, float]] = {}
 
     for prop, grid in reference.npGrid.items():
@@ -208,12 +225,20 @@ def pair_overlap(reference: Grid, targets: list[Grid]) -> dict[str, dict[str, fl
             if total_sum == 0 or np.isinf(total_sum):
                 overlap[prop][target_id] = np.nan
             else:
-                overlap[prop][target_id] = np.round(1 - (total_diff / total_sum), 4)
+                overlap[prop][target_id] = np.round(
+                    1 - (total_diff / total_sum), 4
+                )
 
     return overlap
 
-# FIXME - THIS IS TERRIBLY EXPENSIVE AND DOESNT EVEN WORK 
-def all_grid_pairwise_distance(grids: list[Grid], props: list[str], absolute_vals: bool = True, metric: str = 'euclidean'):
+
+# FIXME - THIS IS TERRIBLY EXPENSIVE AND DOESNT EVEN WORK
+def all_grid_pairwise_distance(
+    grids: list[Grid],
+    props: list[str],
+    absolute_vals: bool = True,
+    metric: str = "euclidean",
+):
     prop_distances = {}
     prop_distances_sum = {}
     for key in props:
@@ -221,10 +246,13 @@ def all_grid_pairwise_distance(grids: list[Grid], props: list[str], absolute_val
         if absolute_vals:
             np_grids = np.abs(np_grids)
         prop_distances[key] = squareform(pdist(np_grids, metric))
-        # prop_distances_sum[key] = 
+        # prop_distances_sum[key] =
     return prop_distances
 
-def voxel_pair_overlap(reference: Grid, targets: list[Grid], absolute_vals: bool = True):
+
+def voxel_pair_overlap(
+    reference: Grid, targets: list[Grid], absolute_vals: bool = True
+):
     overlap = {}
     pass
 
@@ -235,7 +263,9 @@ def calculate_average(
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
+        np_grids = np.array(
+            [grid.npGrid[key].astype(np.float64) for grid in grids]
+        )
         n_mask = np.where(
             np.count_nonzero(np_grids, axis=0) > min_contribs, True, False
         )
@@ -278,7 +308,9 @@ def calculate_boltz_avg(
         energies = np.array(energies)
         # print("Energies: ", energies)
     except Exception as e:
-        raise ValueError(f"Error retrieving energies using key '{energy_key}': {e}")
+        raise ValueError(
+            f"Error retrieving energies using key '{energy_key}': {e}"
+        )
 
     # Log-sum-exp
     max_val = np.max(-beta * energies, keepdims=True)
@@ -290,7 +322,10 @@ def calculate_boltz_avg(
 
     for key in props:
         scaled_grids = np.array(
-            [grid.npGrid[key].astype(np.float64) * p for grid, p in zip(grids, prob)]
+            [
+                grid.npGrid[key].astype(np.float64) * p
+                for grid, p in zip(grids, prob)
+            ]
         )
         boltz_avg = np.mean(scaled_grids, axis=0)
 
@@ -344,10 +379,14 @@ def calculate_pki_avg(
         if not valid_pairs:
             continue
         np_grids = np.array([grid.npGrid[key] for grid, _ in valid_pairs])
-        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
+        n_mask = np.where(
+            np.count_nonzero(np_grids, axis=0) > n_contribs, True, False
+        )
         np_grids[:, ~n_mask] = np.nan
         if pre_scaled:
-            pki_weighted_avg = np.mean([grid.npGrid[key] for grid, _ in valid_pairs], axis=0)
+            pki_weighted_avg = np.mean(
+                [grid.npGrid[key] for grid, _ in valid_pairs], axis=0
+            )
         else:
             pki_weighted_avg = np.mean(
                 [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
@@ -367,7 +406,9 @@ def grid_stddev(
 
     for key in props:
         np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
-        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
+        n_mask = np.where(
+            np.count_nonzero(np_grids, axis=0) > n_contribs, True, False
+        )
         np_grids[:, ~n_mask] = np.nan
 
         if means:
@@ -381,7 +422,9 @@ def grid_stddev(
             )
         else:
             prop_stddev[key] = np.nan_to_num(
-                np.nanstd(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
+                np.nanstd(
+                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
+                )
             )
     return Grid(npGrid=prop_stddev, grid_props=grid[0].grid_props)
 
@@ -406,7 +449,9 @@ def grid_variance(
             )
         else:
             prop_variance[key] = np.nan_to_num(
-                np.nanvar(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
+                np.nanvar(
+                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
+                )
             )
     return Grid(npGrid=prop_variance, grid_props=grid[0].grid_props)
 
@@ -442,7 +487,9 @@ def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     # Elbow method to determine optimal number of clusters
     deltas = np.diff(wcss)
     second_deltas = np.diff(deltas)
-    optimal_k = np.argmax(second_deltas) + 2  # +2 to account for the diff offsets
+    optimal_k = (
+        np.argmax(second_deltas) + 2
+    )  # +2 to account for the diff offsets
     return int(optimal_k)
 
 
@@ -467,9 +514,25 @@ def kmeans_clustering(
 
 
 def hdbscan_clustering(grid: list[Grid], props: list[str]):
-    clustering_results: dict[str, Any] = {}
+    raise NotImplementedError("HDBSCAN clustering is not implemented yet.")
+
+
+def spatial_agglomerative_clustering(
+    grids: list[Grid],
+    props: list[str],
+    n_clusters: int = 5,
+    linkage: str = "ward",
+):
+    clustering_results: dict[str, npt.NDArray[np.int32]] = {}
 
     for key in props:
-        dbs = DBSCAN(eps=0.3)
+        connectivity = grid_to_graph(*grids[0].npGrid[key].shape)
+        data = np.array([g.npGrid[key].flatten() for g in grids]).T
+        clusters = AgglomerativeClustering(
+            n_clusters=n_clusters, linkage=linkage, connectivity=connectivity
+        ).fit(data)
+        clustering_results[key] = clusters.labels_.reshape(
+            grids[0].npGrid[key].shape
+        )
 
-    pass
+    return Grid(npGrid=clustering_results, grid_props=grids[0].grid_props)
