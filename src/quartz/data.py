@@ -6,18 +6,21 @@ import qcelemental.models.types as qcelt
 from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
 from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D_
+import scipy.constants
 
 
+# can I do data validation with pydantic
 @dataclass
 class MoleculeData:
     atomic_numbers: qcelt.Array
     coordinates: qcelt.Array
-    res: dict[str, Any] # xtb legacy thingy
+    res: dict[str, Any]  # xtb legacy thingy
     smiles: str
     rdmol: Mol
     filename: str = ""
     pdb_code: str = ""
     extra: dict[str, Any] | None = None
+
 
 # TODO - possible big thing, dict of ID: Grid
 @dataclass
@@ -32,7 +35,7 @@ class Grid:
     dxGrid: OpenDX.field | None = None
 
     @property
-    def pki(self) -> float:
+    def pki(self):
         if self.mol_data and self.mol_data.extra and "pki" in self.mol_data.extra:
             pki_val = self.mol_data.extra["pki"]
             if pki_val is not None:
@@ -40,7 +43,7 @@ class Grid:
         return np.nan
 
     @property
-    def ki(self) -> float:
+    def ki(self):
         if self.mol_data and self.mol_data.extra and "ki" in self.mol_data.extra:
             ki_val = self.mol_data.extra["ki"]
             if ki_val is not None:
@@ -48,12 +51,36 @@ class Grid:
         return np.nan
 
     @property
-    def weight(self) -> float:
+    def deltaG(self):
+        if (
+            self.mol_data
+            and self.mol_data.extra
+            and "deltaG" in self.mol_data.extra
+            and self.mol_data.extra["deltaG"] is not None
+        ):
+            return self.mol_data.extra["deltaG"]
+        if (
+            self.mol_data
+            and self.mol_data.extra
+            and "ki" in self.mol_data.extra
+            and "temp" in self.mol_data.extra
+        ):
+            ki = self.mol_data.extra["ki"]
+            temp = self.mol_data.extra["temp"]
+            if ki is not None and temp is not None:
+                return -scipy.constants.R * temp * np.log(ki)
+
+    @property
+    def weight(self):
         if self.mol_data and self.mol_data.extra and "weight" in self.mol_data.extra:
             weight_val = self.mol_data.extra["weight"]
             if weight_val is not None:
                 return weight_val
         return np.nan
+
+    @weight.setter
+    def weight(self, val: float):
+        self._weight = val
 
     @property
     def extra(self) -> dict[str, Any] | None:
@@ -69,6 +96,35 @@ class Grid:
             return self.mol_data.filename
         else:
             return "unknown_id"
+
+    def set_weight(self, weight_key: str):
+        if self.mol_data and self.mol_data.extra is None:
+            raise Exception("No 'extra' dict found")
+        if self.extra and weight_key in self.extra:
+            self.weight = self.extra[weight_key]
+
+    def weigh_grid(self):
+        if self.extra and self.extra["weight"] is not None:
+            self.npGrid = {
+                prop: self.npGrid[prop] * self.extra["weight"]
+                for prop in self.npGrid.keys()
+            }
+
+
+# Scales pKi and grids between 0 and 1, and applies the weight
+def scale_grids(grids: list[Grid]):
+    """
+    Takes a list of grids, scales pKi between 0 and 1
+    """
+    pkis = [grid.pki for grid in grids]
+    max_pki = max(pkis)
+    for grid in grids:
+        if grid.extra is None:
+            print(f"Skipping grid {grid.id_code}. No 'extra' dict found.")
+            continue
+        grid.extra["weight"] = grid.pki / max_pki
+        grid.weigh_grid()
+    return grids
 
 
 def pki_grid_scale(grid: Grid) -> Grid | None:
@@ -102,6 +158,7 @@ def set_weights(grids: list[Grid], weight_key: str) -> None:
         ):
             # print("assigning weight: ", weights[i])
             grid.mol_data.extra["weight"] = weights[i]
+
 
 def weight_scale(grid: Grid) -> Grid:
     if grid.weight is None or np.isnan(grid.weight):
