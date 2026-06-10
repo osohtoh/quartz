@@ -14,9 +14,9 @@ from quartz.utils import angstrom_to_bohr
 
 
 class WfnAnalysis:
-    def __init__(self, wfn_file: str, mwfn_path: str):
-        self.wfn_file = wfn_file  # fchk
-        self.mwfn_path = mwfn_path
+    def __init__(self, wfn_file: str | Path, mwfn_path: str | Path):
+        self.wfn_file = str(wfn_file)  # fchk
+        self.mwfn_path = str(mwfn_path)
         self.temp_dir = Path(tempfile.mkdtemp(prefix="temp_mwfn_"))
         self.props = defaultdict(list)
         self.grid_props = Grid({}, {})
@@ -39,7 +39,11 @@ class WfnAnalysis:
         )
         # Format: 1(C ):   6.591 a.u.  Contribution:  2.53 %  (Ref. data:  11.300 a.u.)
         self.pol_c6_line_regex = re.compile(
-            r"\s*\d+\([A-Za-z]+\s*\):\s+([0-9]*\.?[0-9]+)\s+a\.u\."
+            r"\s*\d+\([A-Za-z]+\s*\):\s*([0-9]*\.?[0-9]+|\*+)\s+a\.u\."
+            r"(?:\s+Contribution:\s*([0-9]*\.?[0-9]+)\s*%)?"
+        )
+        self.pol_sum_regex = re.compile(
+            r"\s*Sum of atomic polarizabilities:\s*([0-9]*\.?[0-9]+)\s+a\.u\."
         )
         # Format: 28(C )  -0.0696188369
         self.resp_regex = re.compile(r"\s*\d+\([a-zA-Z]+\s*\)\s+(\-*\d+\.\d+)")
@@ -94,30 +98,39 @@ class WfnAnalysis:
         # self.wfn_file = os.path.join(self.temp_dir, "new.wfn")
         return os.path.join(self.temp_dir, "new.wfn")
 
-    def polarizability(self, atom_wfns_dir):
+    def polarizability(
+        self,
+        atom_wfns_dir,
+        atom_wfns_ext="fchk",
+        elements: list[str] = None,
+        clamp: float | None = None,
+    ):
         """
         Use Multiwfn to calculate atomic polarizability from fchk file.
         Needs isolated atom wavefunctions (fchk format) and SO split (I think).
         15 -> 13 -> [atom wfn paths] -> 0 -> q
         """
-        elements = []
         with self._get_mwfn() as mwfn:
             input_str = f"{self.split_so_wfn}\nq\n"
             outs, errs = mwfn.communicate(input=input_str)
 
-            try:
-                split_out = outs.split()
-                if "Formula:" in split_out:
-                    start_idx = split_out.index("Formula:") + 1
-                    if "Total" in split_out[start_idx:]:
-                        end_idx = split_out.index("Total", start_idx)
-                        formula = split_out[start_idx:end_idx]
-                        elements = [
-                            "".join(filter(str.isalpha, elem)) for elem in formula
-                        ]
-                        # print(f"Parsed elements from Multiwfn output: {elements}")
-            except Exception as e:
-                print(f"Warning: Failed to parse elements from Multiwfn output: {e}")
+            if elements is None:
+                try:
+                    split_out = outs.split()
+                    if "Formula:" in split_out:
+                        start_idx = split_out.startswith("Formula:") + 1
+                        print(start_idx)
+                        if "Total" in split_out[start_idx:]:
+                            end_idx = split_out.index("Total", start_idx)
+                            formula = split_out[start_idx:end_idx]
+                            elements = [
+                                "".join(filter(str.isalpha, elem)) for elem in formula
+                            ]
+                            # print(f"Parsed elements from Multiwfn output: {elements}")
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to parse elements from Multiwfn output: {e}"
+                    )
 
         if not elements:
             raise Exception("Could not determine elements from wavefunction file.")
@@ -126,7 +139,7 @@ class WfnAnalysis:
         atom_inputs = []
         for atom in elements:
             # Handle standard naming or specific paths
-            atom_wfn = os.path.join(atom_wfns_dir, f"{atom}.fchk")
+            atom_wfn = os.path.join(atom_wfns_dir, f"{atom}.{atom_wfns_ext}")
             if not os.path.exists(atom_wfn):
                 raise Exception(
                     f"No wavefunction found for element {atom} in {atom_wfns_dir}"
@@ -145,10 +158,15 @@ class WfnAnalysis:
         # print("Multiwfn output: ", outs)
         # print("Multiwfn errors: ", errs)
 
-        lines = [l.strip() for l in outs.splitlines()]
+        self.parse_polarizability_out(outs, clamp)
+
+    def parse_polarizability_out(self, output, clamp=None):
+        lines = [line.strip() for line in output.splitlines()]
 
         # Single-pass parsing: volumes, polarizabilities, and C6 coefficients
         section = None  # tracks which section we're in: 'pol' or 'c6'
+        pol_entries = []
+        pol_sum = None
         curr_line = None
         try:
             for line in lines:
@@ -167,6 +185,8 @@ class WfnAnalysis:
                     in line
                 ):
                     section = "pol"
+                    pol_entries = []
+                    pol_sum = None
                     continue
                 if (
                     "Atomic C6 coefficients estimated using Tkatchenko-Scheffler method:"
@@ -175,14 +195,69 @@ class WfnAnalysis:
                     section = "c6"
                     continue
 
+                if section == "pol":
+                    pol_sum_match = self.pol_sum_regex.match(line)
+                    if pol_sum_match:
+                        pol_sum = float(pol_sum_match.group(1))
+                        for value_str, contribution in pol_entries:
+                            if set(value_str) == {"*"}:
+                                if contribution is not None:
+                                    value = pol_sum * contribution / 100.0
+                                else:
+                                    value = 0.0
+                            else:
+                                value = float(value_str)
+                            if clamp is not None:
+                                value = min(value, clamp)
+                            self.props["polarizability"].append(value)
+                        pol_entries = []
+                        continue
+
                 # Parse polarizability / C6 data lines
                 if section in ("pol", "c6"):
                     match = self.pol_c6_line_regex.match(line)
                     if match:
-                        key = "polarizability" if section == "pol" else "c6"
-                        self.props[key].append(float(match.group(1)))
+                        value_str = match.group(1)
+                        if section == "pol":
+                            contribution = (
+                                float(match.group(2))
+                                if match.group(2) is not None
+                                else None
+                            )
+                            pol_entries.append((value_str, contribution))
+                        else:
+                            value = 0.0 if set(value_str) == {"*"} else float(value_str)
+                            if clamp is not None:
+                                value = min(value, clamp)
+                            self.props["c6"].append(value)
                     elif not line:  # blank line ends the section
+                        if section == "pol" and pol_entries:
+                            for value_str, contribution in pol_entries:
+                                if set(value_str) == {"*"}:
+                                    if pol_sum is not None and contribution is not None:
+                                        value = pol_sum * contribution / 100.0
+                                    else:
+                                        value = 0.0
+                                else:
+                                    value = float(value_str)
+                                if clamp is not None:
+                                    value = min(value, clamp)
+                                self.props["polarizability"].append(value)
+                            pol_entries = []
                         section = None
+
+            if pol_entries:
+                for value_str, contribution in pol_entries:
+                    if set(value_str) == {"*"}:
+                        if pol_sum is not None and contribution is not None:
+                            value = pol_sum * contribution / 100.0
+                        else:
+                            value = 0.0
+                    else:
+                        value = float(value_str)
+                    if clamp is not None:
+                        value = min(value, clamp)
+                    self.props["polarizability"].append(value)
 
         except Exception as e:
             print(
