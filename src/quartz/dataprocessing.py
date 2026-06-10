@@ -119,12 +119,6 @@ def extract_props(temp_dir: Path, basename: str):
     return props
 
 
-#!SECTION
-# SECTION - Calculation functions
-
-# NOTE - overlap functions use Dice-like similarity metric
-
-
 def calculate_overlap(
     grids: list[Grid], props: list[str], min_contribs: int = 10
 ) -> dict[str, float]:
@@ -167,6 +161,10 @@ def calculate_overlap(
 def dice_coefficient(
     reference: Grid, grids: list[Grid]
 ) -> dict[str, dict[str, float]]:
+    """
+    Calculate Dice coefficient between reference Grid and a grid from supplied list of Grids.
+    Value of 0 means no overlapping elements, value of 1 means the grids are the same.
+    """
     dice_coefs = {}
     for prop, ref_grid in reference.npGrid.items():
         dice_coefs[prop] = {}
@@ -198,65 +196,6 @@ def cosine_coefficient(
     return cosine_coefs
 
 
-def calculate_voxel_overlap(
-    grids: list[Grid],
-    props: list[str],
-    metric: str = "euclidean",
-    min_contribs=10,
-):
-    pass
-
-
-def pair_overlap(
-    reference: Grid, targets: list[Grid]
-) -> dict[str, dict[str, float]]:
-    overlap: dict[str, dict[str, float]] = {}
-
-    for prop, grid in reference.npGrid.items():
-        overlap[prop] = {}
-        for g in targets:
-            # No min_contribs as we're using a singluar grid
-            np_grid = g.npGrid[prop].astype(np.float64)
-            target_id = g.mol_data.pdb_code if g.mol_data else f"target_{id(g)}"
-
-            total_diff = np.sum(np.abs(np_grid - grid))
-            total_sum = np.sum(np.abs(np_grid)) + np.sum(np.abs(grid))
-
-            if total_sum == 0 or np.isinf(total_sum):
-                overlap[prop][target_id] = np.nan
-            else:
-                overlap[prop][target_id] = np.round(
-                    1 - (total_diff / total_sum), 4
-                )
-
-    return overlap
-
-
-# FIXME - THIS IS TERRIBLY EXPENSIVE AND DOESNT EVEN WORK
-def all_grid_pairwise_distance(
-    grids: list[Grid],
-    props: list[str],
-    absolute_vals: bool = True,
-    metric: str = "euclidean",
-):
-    prop_distances = {}
-    prop_distances_sum = {}
-    for key in props:
-        np_grids = np.array([grid.npGrid[key] for grid in grids])
-        if absolute_vals:
-            np_grids = np.abs(np_grids)
-        prop_distances[key] = squareform(pdist(np_grids, metric))
-        # prop_distances_sum[key] =
-    return prop_distances
-
-
-def voxel_pair_overlap(
-    reference: Grid, targets: list[Grid], absolute_vals: bool = True
-):
-    overlap = {}
-    pass
-
-
 def calculate_average(
     grids: list[Grid], props: list[str], min_contribs: int = 10
 ) -> Grid:
@@ -276,67 +215,11 @@ def calculate_average(
     return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
 
 
-# TODO - make use of docking score or \DeltaG = -RTlnK as the energy for boltzmann
-def calculate_boltz_avg(
-    grids: list[Grid],
-    props: list[str],
-    energy_key: str,
-    beta: float = 1.0,
-) -> Grid:
-    """
-    Function calculating Boltzmann-weighted average of grid properties. Values used for energies are specified in `energy_keys` and are retrieved from `mol_data.extra` of a `MoleculeData` object.
-    energy_keys: list of keys in mol_data.extra to sum for energy calculation
-    """
-
-    prop_averages: dict[str, npt.NDArray[np.float64]] = {}
-    try:
-        energies = []
-        valid_grids = []
-        for grid in grids:
-            if (
-                grid.mol_data
-                and grid.mol_data.extra
-                and energy_key in grid.mol_data.extra
-            ):
-                energies.append(float(grid.mol_data.extra[energy_key]))
-                valid_grids.append(grid)
-            else:
-                raise ValueError(
-                    f"Energy key '{energy_key}' not found in mol_data.extra for grid: {grid.mol_data.filename}"
-                )
-
-        energies = np.array(energies)
-        # print("Energies: ", energies)
-    except Exception as e:
-        raise ValueError(
-            f"Error retrieving energies using key '{energy_key}': {e}"
-        )
-
-    # Log-sum-exp
-    max_val = np.max(-beta * energies, keepdims=True)
-    exp_vals = np.exp(-beta * energies - max_val)
-    partition_fn = np.sum(exp_vals)
-    # print("Partition function: ", partition_fn)
-    prob = exp_vals / partition_fn
-    # print("Probabilities: ", prob)
-
-    for key in props:
-        scaled_grids = np.array(
-            [
-                grid.npGrid[key].astype(np.float64) * p
-                for grid, p in zip(grids, prob)
-            ]
-        )
-        boltz_avg = np.mean(scaled_grids, axis=0)
-
-        # print(f"Boltzmann average for {key}: ", boltz_avg)
-
-        prop_averages[key] = boltz_avg
-
-    return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
-
-
 def calculate_weighted_avg(grids: list[Grid], props: list[str]) -> Grid:
+    """
+    Calculates average Grid with values weighted by the `weight` property of a `Grid`.
+    `Grid` objects without `weight` property are skipped.
+    """
     weighted_prop_avgs: dict[str, npt.NDArray[np.float64]] = {}
 
     valid_pairs = []
@@ -477,6 +360,9 @@ def apply_cutoff(
 
 
 def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
+    """
+    Uses elbow to find optimal number of clusters. Somewhat computationally expensive depending on `n_max` set. Second derivative marks inflection point/elbow.
+    """
     wcss = []
     for k in range(1, n_max):
         kmeans = KMeans(n_clusters=k, random_state=42)
@@ -493,7 +379,6 @@ def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     return int(optimal_k)
 
 
-# TODO - normalize values before clustering
 def kmeans_clustering(
     grid: list[Grid], props: list[str], n_clusters: int | None = None
 ) -> Grid:
@@ -511,10 +396,6 @@ def kmeans_clustering(
         )
 
     return Grid(npGrid=clustering_results, grid_props=grid[0].grid_props)
-
-
-def hdbscan_clustering(grid: list[Grid], props: list[str]):
-    raise NotImplementedError("HDBSCAN clustering is not implemented yet.")
 
 
 def spatial_agglomerative_clustering(

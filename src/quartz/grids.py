@@ -113,7 +113,9 @@ def read_cube_to_array(
     return target_array
 
 
-
+# FIXME - maximum values on the grid can exceed the maximum values
+# of atomic polarizability, probably due to multiple atoms contributing,
+#
 def create_grid(
     mol_data: list[MoleculeData],
     props: list[str],
@@ -141,6 +143,7 @@ def create_grid(
         list[Grid]: List of grids, one for each molecule.
     """
 
+    # i forgot to actually use it... no wonder the grids have been fat
     if isinstance(threshold, float):
         # All props have the same cutoff threshold
         threshold = {prop: threshold for prop in props}
@@ -255,7 +258,6 @@ def create_grid(
             property_grid = property_grid_flat.reshape(
                 x_gridcount, y_gridcount, z_gridcount
             )
-            property_grid[np.abs(property_grid) < threshold[key]] = 0.0
             grid_prop_dict[key] = property_grid
 
         grids.append(

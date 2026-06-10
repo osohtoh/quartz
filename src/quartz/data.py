@@ -15,14 +15,15 @@ class MoleculeData:
     atomic_numbers: qcelt.Array
     coordinates: qcelt.Array
     res: dict[str, Any]  # xtb legacy thingy
-    smiles: str
+    smiles: str  # probably better in extra
     rdmol: Mol
-    filename: str = ""
-    pdb_code: str = ""
+    filename: str = ""  # pathlib Path
+    pdb_code: str = ""  # should just be named id
     extra: dict[str, Any] | None = None
 
 
 # TODO - possible big thing, dict of ID: Grid
+# Serialize to HDF5 (probably), ID Code -> Prop -> Array
 @dataclass
 class Grid:
     npGrid: dict[str, npt.NDArray] = field(repr=False)
