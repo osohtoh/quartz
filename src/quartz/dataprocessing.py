@@ -1,4 +1,3 @@
-from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
@@ -66,15 +65,10 @@ def extract_props(temp_dir: Path, basename: str):
     # FIXME - change so it uses the json file
 
     # Process .out file
-    with open(
-        temp_dir / f"{basename}.properties.out", "r", encoding="utf-8"
-    ) as f:
+    with open(temp_dir / f"{basename}.properties.out", "r", encoding="utf-8") as f:
         lines = f.readlines()
         start_idx = (
-            lines.index(
-                "     #   Z          covCN         q      C6AA      α(0)\n"
-            )
-            + 1
+            lines.index("     #   Z          covCN         q      C6AA      α(0)\n") + 1
         )
         end_idx = lines.index("\n", start_idx)
         for line in lines[start_idx:end_idx]:
@@ -119,48 +113,7 @@ def extract_props(temp_dir: Path, basename: str):
     return props
 
 
-def calculate_overlap(
-    grids: list[Grid], props: list[str], min_contribs: int = 10
-) -> dict[str, float]:
-    """ """
-    prop_overlap: dict[str, float] = {}
-
-    for key in props:
-        # Convert to float64 to prevent overflow
-        np_grids = [grid.npGrid[key].astype(np.float64) for grid in grids]
-        combs = list(combinations(np_grids, 2))
-
-        n_mask = np.where(
-            np.count_nonzero(np_grids, axis=0) > min_contribs, True, False
-        )
-        np_grids[:, ~n_mask] = np.nan
-
-        if len(combs) == 0:
-            prop_overlap[key] = np.nan
-            continue
-
-        # Calculate differences pairwise to avoid huge arrays
-        total_diff = 0.0
-        for a, b in combs:
-            total_diff += np.nansum(np.abs(a - b))
-
-        # Sum all grids
-        total_sum = sum(np.nan_to_num(np.nansum(np.abs(g))) for g in np_grids)
-
-        # Avoid division by zero
-        if total_sum == 0 or np.isinf(total_sum):
-            prop_overlap[key] = np.nan
-        else:
-            prop_overlap[key] = np.round(
-                1 - (total_diff / (len(combs) * total_sum)), 4
-            )
-
-    return prop_overlap
-
-
-def dice_coefficient(
-    reference: Grid, grids: list[Grid]
-) -> dict[str, dict[str, float]]:
+def dice_coefficient(reference: Grid, grids: list[Grid]) -> dict[str, dict[str, float]]:
     """
     Calculate Dice coefficient between reference Grid and a grid from supplied list of Grids.
     Value of 0 means no overlapping elements, value of 1 means the grids are the same.
@@ -202,9 +155,7 @@ def calculate_average(
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
-        np_grids = np.array(
-            [grid.npGrid[key].astype(np.float64) for grid in grids]
-        )
+        np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
         n_mask = np.where(
             np.count_nonzero(np_grids, axis=0) > min_contribs, True, False
         )
@@ -262,9 +213,8 @@ def calculate_pki_avg(
         if not valid_pairs:
             continue
         np_grids = np.array([grid.npGrid[key] for grid, _ in valid_pairs])
-        n_mask = np.where(
-            np.count_nonzero(np_grids, axis=0) > n_contribs, True, False
-        )
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
+        # FIXME - n_contribs are effectively ignored as np_grids isn't used later
         np_grids[:, ~n_mask] = np.nan
         if pre_scaled:
             pki_weighted_avg = np.mean(
@@ -289,9 +239,7 @@ def grid_stddev(
 
     for key in props:
         np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
-        n_mask = np.where(
-            np.count_nonzero(np_grids, axis=0) > n_contribs, True, False
-        )
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
         np_grids[:, ~n_mask] = np.nan
 
         if means:
@@ -305,9 +253,7 @@ def grid_stddev(
             )
         else:
             prop_stddev[key] = np.nan_to_num(
-                np.nanstd(
-                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
-                )
+                np.nanstd(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
             )
     return Grid(npGrid=prop_stddev, grid_props=grid[0].grid_props)
 
@@ -332,9 +278,7 @@ def grid_variance(
             )
         else:
             prop_variance[key] = np.nan_to_num(
-                np.nanvar(
-                    np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0
-                )
+                np.nanvar(np.where(np.isclose(np_grids, 0), np.nan, np_grids), axis=0)
             )
     return Grid(npGrid=prop_variance, grid_props=grid[0].grid_props)
 
@@ -373,9 +317,7 @@ def get_cluster_num(grid: list[Grid], prop: str, n_max: int = 10) -> int:
     # Elbow method to determine optimal number of clusters
     deltas = np.diff(wcss)
     second_deltas = np.diff(deltas)
-    optimal_k = (
-        np.argmax(second_deltas) + 2
-    )  # +2 to account for the diff offsets
+    optimal_k = np.argmax(second_deltas) + 2  # +2 to account for the diff offsets
     return int(optimal_k)
 
 
@@ -412,8 +354,6 @@ def spatial_agglomerative_clustering(
         clusters = AgglomerativeClustering(
             n_clusters=n_clusters, linkage=linkage, connectivity=connectivity
         ).fit(data)
-        clustering_results[key] = clusters.labels_.reshape(
-            grids[0].npGrid[key].shape
-        )
+        clustering_results[key] = clusters.labels_.reshape(grids[0].npGrid[key].shape)
 
     return Grid(npGrid=clustering_results, grid_props=grids[0].grid_props)

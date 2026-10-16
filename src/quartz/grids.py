@@ -4,21 +4,19 @@ import numpy as np
 import numpy.typing as npt
 from gridData import OpenDX
 from rdkit.Chem.rdchem import Mol
-from rdkit.Geometry.rdGeometry import Point3D, UniformGrid3D
 from scipy.spatial import KDTree
 
 from quartz.data import Grid, MoleculeData
 
 
 def get_grid_size_for_dataset(
-    mol_data: list[MoleculeData], size: float, padding: float
+    mol_data: list[MoleculeData], padding: float
 ) -> tuple[list[list[float]], float, float, float]:
     """
     Compute the bounding box and dimensions of a 3D grid that encompasses a dataset of molecules.
 
     Parameters:
         mol_data (list[MoleculeData]): List of MoleculeData objects, each containing atomic coordinates.
-        size (float): The voxel size for the grid.
         padding (float): Padding to add to each dimension of the grid (in the same units as coordinates).
 
     Returns:
@@ -32,8 +30,12 @@ def get_grid_size_for_dataset(
         raise ValueError("mol_data must not be empty")
 
     # Vectorized min/max values
-    mins = np.minimum.reduce([mol.coordinates.min(axis=0) for mol in mol_data])
-    maxs = np.maximum.reduce([mol.coordinates.max(axis=0) for mol in mol_data])
+    mins = (
+        np.minimum.reduce([mol.coordinates.min(axis=0) for mol in mol_data]) - padding
+    )
+    maxs = (
+        np.maximum.reduce([mol.coordinates.max(axis=0) for mol in mol_data]) + padding
+    )
 
     xyzs: list[list[float]] = [
         [mins[0], maxs[0]],
@@ -50,72 +52,8 @@ def get_grid_size_for_dataset(
 # Format: x, y, z, val
 
 
-# FIXME - Check if it works lol, AI thingy
-def read_cube_to_array(
-    cubefile: str, target_array: npt.NDArray, origin: tuple[float, float, float]
-) -> npt.NDArray:
-    """
-    Parse a Gaussian cube (.cub) file and insert values into a NumPy array.
-
-    Parameters
-    ----------
-    cubefile : str
-        Path to the .cub file.
-    target_array : np.ndarray
-        Array into which volumetric data will be inserted.
-        Must be >= in size compared to cube grid.
-    origin : tuple(float, float, float)
-        Origin of `target_array` in cartesian coordinates (x0, y0, z0).
-
-    Returns
-    -------
-    np.ndarray
-        target_array with the cube data inserted at the correct location.
-    """
-    with open(cubefile, "r") as f:
-        # Skip title lines
-        f.readline()
-        f.readline()
-
-        # Number of atoms and file grid origin
-        natoms, ox, oy, oz = map(float, f.readline().split())
-        natoms = int(natoms)
-
-        # Grid dimensions and spacing, _ = 0.000
-        nx, vx_x, _ = map(float, f.readline().split())
-        ny, _, vy_y, _ = map(float, f.readline().split())
-        nz, _, _, vz_z = map(float, f.readline().split())
-        nx, ny, nz = int(nx), int(ny), int(nz)
-
-        # Skip atomic coordinates
-        for _ in range(natoms):
-            f.readline()
-
-        # Read the volumetric data
-        data = []
-        for line in f:
-            data.extend(line.split())
-        data = np.array(data, dtype=float).reshape((nx, ny, nz), order="C")
-
-    # Calculate relative insertion index into target_array
-    ox, oy, oz = np.array([ox, oy, oz])
-    gx, gy, gz = np.array(origin)
-
-    ix = int(round((ox - gx) / vx_x))
-    iy = int(round((oy - gy) / vy_y))
-    iz = int(round((oz - gz) / vz_z))
-
-    tx, ty, tz = target_array.shape
-
-    # Insert cube data into target array
-    target_array[ix : ix + nx, iy : iy + ny, iz : iz + nz] = data
-
-    return target_array
-
-
 # FIXME - maximum values on the grid can exceed the maximum values
 # of atomic polarizability, probably due to multiple atoms contributing,
-#
 def create_grid(
     mol_data: list[MoleculeData],
     props: list[str],
@@ -156,17 +94,17 @@ def create_grid(
         raise ValueError("Threshold must be a float or a dict[str, float]")
 
     # Get grid bounds and distances for the dataset
-    xyzs, x_dist, y_dist, z_dist = get_grid_size_for_dataset(mol_data, size, padding)
+    xyzs, x_dist, y_dist, z_dist = get_grid_size_for_dataset(mol_data, padding)
     origin = (
-        xyzs[0][0] - padding,
-        xyzs[1][0] - padding,
-        xyzs[2][0] - padding,
+        xyzs[0][0],
+        xyzs[1][0],
+        xyzs[2][0],
     )
 
     # TODO - padding per axis
-    x_len = np.ceil(x_dist + 2.0 * padding)
-    y_len = np.ceil(y_dist + 2.0 * padding)
-    z_len = np.ceil(z_dist + 2.0 * padding)
+    x_len = np.ceil(x_dist)
+    y_len = np.ceil(y_dist)
+    z_len = np.ceil(z_dist)
     print("Grid lengths: ", x_len, y_len, z_len)
     print("Origin: ", *origin)
 
@@ -200,6 +138,8 @@ def create_grid(
     # Build KDTree for grid points once (reused per molecule)
     grid_tree = KDTree(grid_points)
 
+    # FIXME - considering atom contributions results in polarizability maxima being located on bonds, rather than on atoms. Fix and verify results.
+    # FIXME - apply cutoff value
     grids = []
     for mol in mol_data:
         print("Processing: ", mol.filename)

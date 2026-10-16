@@ -104,29 +104,6 @@ class Grid:
         if self.extra and weight_key in self.extra:
             self.weight = self.extra[weight_key]
 
-    def weigh_grid(self):
-        if self.extra and self.extra["weight"] is not None:
-            self.npGrid = {
-                prop: self.npGrid[prop] * self.extra["weight"]
-                for prop in self.npGrid.keys()
-            }
-
-
-# Scales pKi and grids between 0 and 1, and applies the weight
-def scale_grids(grids: list[Grid]):
-    """
-    Takes a list of grids, scales pKi between 0 and 1
-    """
-    pkis = [grid.pki for grid in grids]
-    max_pki = max(pkis)
-    for grid in grids:
-        if grid.extra is None:
-            print(f"Skipping grid {grid.id_code}. No 'extra' dict found.")
-            continue
-        grid.extra["weight"] = grid.pki / max_pki
-        grid.weigh_grid()
-    return grids
-
 
 def pki_grid_scale(grid: Grid) -> Grid | None:
     if grid.pki is None or np.isnan(grid.pki):
