@@ -59,7 +59,7 @@ def create_grid(
     props: list[str],
     size: float = 1.0,
     padding: float = 5.0,
-    threshold: dict[str, float] | float = 0.01,
+    threshold: dict[str, float] | float = 0.0,
     cutoff_dist: float = 10.0,
     clamp_dist: float = 0.3,
     falloff_exp: float = 12.0,
@@ -72,7 +72,7 @@ def create_grid(
         props (list[str]): List of properties to include in the grid.
         size (float, optional): Voxel size. Defaults to 1.0.
         padding (float, optional): Padding around the grid. Defaults to 5.0.
-        threshold (dict[str, float] | float, optional): Threshold for property values, either a single float or a dict per property. Defaults to 0.01.
+        threshold (dict[str, float] | float, optional): Voxel values with an absolute value below the threshold are set to zero. Either a single float for all props or a dict per property; props missing from the dict are not thresholded. Defaults to 0.0, which keeps all values.
         cutoff_dist (float, optional): Maximum distance for atom contributions. Defaults to 10.0.
         clamp_dist (float, optional): Minimum distance (clamped) to avoid singularities. Defaults to 0.3.
         falloff_exp (float, optional): Exponent for distance falloff. Defaults to 12.0.
@@ -81,17 +81,16 @@ def create_grid(
         list[Grid]: List of grids, one for each molecule.
     """
 
-    # i forgot to actually use it... no wonder the grids have been fat
-    if isinstance(threshold, float):
-        # All props have the same cutoff threshold
-        threshold = {prop: threshold for prop in props}
+    if isinstance(threshold, (int, float)):
+        # All props have the same threshold
+        threshold = {prop: float(threshold) for prop in props}
     elif isinstance(threshold, dict):
-        # All props have a threshold, default to 0.01 if missing
-        for prop in props:
-            if prop not in threshold:
-                threshold[prop] = 0.01
+        # Props missing from the dict are not thresholded
+        threshold = {prop: float(threshold.get(prop, 0.0)) for prop in props}
     else:
         raise ValueError("Threshold must be a float or a dict[str, float]")
+    if any(value < 0 for value in threshold.values()):
+        raise ValueError("Threshold must be non-negative")
 
     # Get grid bounds and distances for the dataset
     xyzs, x_dist, y_dist, z_dist = get_grid_size_for_dataset(mol_data, padding)
@@ -139,7 +138,6 @@ def create_grid(
     grid_tree = KDTree(grid_points)
 
     # FIXME - considering atom contributions results in polarizability maxima being located on bonds, rather than on atoms. Fix and verify results.
-    # FIXME - apply cutoff value
     grids = []
     for mol in mol_data:
         print("Processing: ", mol.filename)
@@ -198,6 +196,7 @@ def create_grid(
             property_grid = property_grid_flat.reshape(
                 x_gridcount, y_gridcount, z_gridcount
             )
+            property_grid[np.abs(property_grid) < threshold[key]] = 0.0
             grid_prop_dict[key] = property_grid
 
         grids.append(

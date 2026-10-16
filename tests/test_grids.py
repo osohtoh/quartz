@@ -101,6 +101,117 @@ def test_negative_property_gives_negative_peak():
     assert grid.npGrid["polarizability"][centre] == pytest.approx(-1.0)
 
 
+def _atom_voxel(grid) -> tuple[int, ...]:
+    origin = np.array(grid.grid_props["origin"])
+    return tuple(np.round(-origin).astype(int))
+
+
+def _two_away(grid) -> tuple[int, ...]:
+    return tuple(np.array(_atom_voxel(grid)) + np.array([2, 0, 0]))
+
+
+def test_default_threshold_keeps_small_values():
+    grid = create_grid([_single_atom(1.0)], ["polarizability"], size=1.0, padding=3.0)[
+        0
+    ]
+    # 2**-12 should survive the default 0.0 threshold
+    assert grid.npGrid["polarizability"][_two_away(grid)] == pytest.approx(
+        2.0**-12, rel=1e-3
+    )
+
+
+def test_default_threshold_matches_explicit_zero():
+    mol = build_substituted_benzene("chlorobenzene", "CLB")
+    default = create_grid([mol], PROPS, size=1.0, padding=3.0)[0]
+    explicit = create_grid([mol], PROPS, size=1.0, padding=3.0, threshold=0.0)[0]
+    for prop in PROPS:
+        np.testing.assert_array_equal(default.npGrid[prop], explicit.npGrid[prop])
+
+
+def test_threshold_zeroes_values_below_it():
+    grid = create_grid(
+        [_single_atom(1.0)], ["polarizability"], size=1.0, padding=3.0, threshold=0.01
+    )[0]
+    values = grid.npGrid["polarizability"]
+    assert values[_atom_voxel(grid)] == pytest.approx(1.0)
+    assert values[_two_away(grid)] == 0.0
+
+
+def test_threshold_leaves_no_nonzero_value_below_it():
+    mol = build_substituted_benzene("chlorobenzene", "CLB")
+    default = create_grid([mol], PROPS, size=1.0, padding=3.0)[0]
+    grid = create_grid([mol], PROPS, size=1.0, padding=3.0, threshold=0.05)[0]
+    for prop in PROPS:
+        values = grid.npGrid[prop]
+        assert np.all((values == 0) | (np.abs(values) >= 0.05))
+        assert np.count_nonzero(values) < np.count_nonzero(default.npGrid[prop])
+
+
+def test_threshold_uses_absolute_value():
+    grid = create_grid(
+        [_single_atom(-1.0)], ["polarizability"], size=1.0, padding=3.0, threshold=0.01
+    )[0]
+    values = grid.npGrid["polarizability"]
+    assert values[_atom_voxel(grid)] == pytest.approx(-1.0)
+    assert values[_two_away(grid)] == 0.0
+
+
+def test_threshold_keeps_values_equal_to_it():
+    default = create_grid(
+        [_single_atom(1.0)], ["polarizability"], size=1.0, padding=3.0
+    )[0]
+    value = float(default.npGrid["polarizability"][_two_away(default)])
+
+    kept = create_grid(
+        [_single_atom(1.0)], ["polarizability"], size=1.0, padding=3.0, threshold=value
+    )[0]
+    dropped = create_grid(
+        [_single_atom(1.0)],
+        ["polarizability"],
+        size=1.0,
+        padding=3.0,
+        threshold=value * 1.01,
+    )[0]
+    assert kept.npGrid["polarizability"][_two_away(kept)] == pytest.approx(value)
+    assert dropped.npGrid["polarizability"][_two_away(dropped)] == 0.0
+
+
+def test_scalar_threshold_applies_to_every_property():
+    mol = build_substituted_benzene("chlorobenzene", "CLB")
+    default = create_grid([mol], PROPS, size=1.0, padding=3.0)[0]
+    grid = create_grid([mol], PROPS, size=1.0, padding=3.0, threshold=0.5)[0]
+    for prop in PROPS:
+        base = default.npGrid[prop]
+        np.testing.assert_array_equal(
+            grid.npGrid[prop], np.where(np.abs(base) < 0.5, 0.0, base)
+        )
+
+
+def test_dict_threshold_applies_per_property_and_defaults_missing_to_zero():
+    mol = build_substituted_benzene("chlorobenzene", "CLB")
+    default = create_grid([mol], PROPS, size=1.0, padding=3.0)[0]
+    grid = create_grid(
+        [mol], PROPS, size=1.0, padding=3.0, threshold={"polarizability": 0.5}
+    )[0]
+    np.testing.assert_array_equal(grid.npGrid["charges"], default.npGrid["charges"])
+    base = default.npGrid["polarizability"]
+    np.testing.assert_array_equal(
+        grid.npGrid["polarizability"], np.where(np.abs(base) < 0.5, 0.0, base)
+    )
+
+
+def test_threshold_dict_is_not_modified():
+    thresholds = {"polarizability": 0.5}
+    create_grid([_single_atom(1.0)], ["polarizability"], threshold=thresholds)
+    assert thresholds == {"polarizability": 0.5}
+
+
+@pytest.mark.parametrize("threshold", [-0.1, {"polarizability": -0.1}, "0.1"])
+def test_invalid_threshold_raises(threshold):
+    with pytest.raises(ValueError):
+        create_grid([_single_atom(1.0)], ["polarizability"], threshold=threshold)
+
+
 def test_to_dxgrid_round_trip(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     arr = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
