@@ -150,15 +150,13 @@ def cosine_coefficient(
 
 
 def calculate_average(
-    grids: list[Grid], props: list[str], min_contribs: int = 10
+    grids: list[Grid], props: list[str], n_contribs: int = 10
 ) -> Grid:
     prop_averages: dict[str, npt.NDArray[np.float64]] = {}
 
     for key in props:
         np_grids = np.array([grid.npGrid[key].astype(np.float64) for grid in grids])
-        n_mask = np.where(
-            np.count_nonzero(np_grids, axis=0) > min_contribs, True, False
-        )
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) >= n_contribs, True, False)
         np_grids[:, ~n_mask] = np.nan
 
         prop_averages[key] = np.nan_to_num(np.nanmean(np_grids, axis=0))
@@ -213,9 +211,7 @@ def calculate_pki_avg(
         if not valid_pairs:
             continue
         np_grids = np.array([grid.npGrid[key] for grid, _ in valid_pairs])
-        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
-        # FIXME - n_contribs are effectively ignored as np_grids isn't used later
-        np_grids[:, ~n_mask] = np.nan
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) >= n_contribs, True, False)
         if pre_scaled:
             pki_weighted_avg = np.mean(
                 [grid.npGrid[key] for grid, _ in valid_pairs], axis=0
@@ -224,7 +220,7 @@ def calculate_pki_avg(
             pki_weighted_avg = np.mean(
                 [grid.npGrid[key] * pki for grid, pki in valid_pairs], axis=0
             )
-        prop_averages[key] = pki_weighted_avg
+        prop_averages[key] = np.where(n_mask, pki_weighted_avg, 0.0)
 
     return Grid(npGrid=prop_averages, grid_props=grids[0].grid_props)
 
@@ -239,7 +235,7 @@ def grid_stddev(
 
     for key in props:
         np_grids = np.array([g.npGrid[key].astype(np.float64) for g in grid])
-        n_mask = np.where(np.count_nonzero(np_grids, axis=0) > n_contribs, True, False)
+        n_mask = np.where(np.count_nonzero(np_grids, axis=0) >= n_contribs, True, False)
         np_grids[:, ~n_mask] = np.nan
 
         if means:

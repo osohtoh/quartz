@@ -107,18 +107,30 @@ def test_pki_avg_without_any_pki_raises():
         calculate_pki_avg(grids, props=["polarizability"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="calculate_pki_avg computes the n_contribs mask but never applies it",
-)
-def test_pki_avg_n_contribs_masks_sparse_voxels():
-    grids = [
-        make_dummy_grid(np.array([1.0, 1.0]), "A", pki=5.0),
-        make_dummy_grid(np.array([0.0, 1.0]), "B", pki=5.0),
+def _sparse_pair():
+    return [
+        make_dummy_grid(np.array([1.0, 1.0, 0.0]), "A", pki=5.0),
+        make_dummy_grid(np.array([0.0, 1.0, 0.0]), "B", pki=5.0),
     ]
-    # voxel 0 is contributed by one molecule only, so with n_contribs=1 it is dropped
-    avg = calculate_pki_avg(grids, props=["polarizability"], n_contribs=1)
-    assert avg.npGrid["polarizability"][0] == 0.0
+
+
+def test_pki_avg_n_contribs_zeroes_voxels_below_threshold():
+    # voxel 0 has one contribution, voxel 1 two, voxel 2 none
+    avg = calculate_pki_avg(_sparse_pair(), props=["polarizability"], n_contribs=2)
+    np.testing.assert_allclose(avg.npGrid["polarizability"], [0.0, 5.0, 0.0])
+
+
+def test_pki_avg_n_contribs_keeps_voxels_at_threshold():
+    # voxel 0 has exactly one contribution, which meets n_contribs=1
+    avg = calculate_pki_avg(_sparse_pair(), props=["polarizability"], n_contribs=1)
+    np.testing.assert_allclose(avg.npGrid["polarizability"], [2.5, 5.0, 0.0])
+
+
+def test_pki_avg_n_contribs_applies_to_pre_scaled_average():
+    avg = calculate_pki_avg(
+        _sparse_pair(), props=["polarizability"], n_contribs=2, pre_scaled=True
+    )
+    np.testing.assert_allclose(avg.npGrid["polarizability"], [0.0, 1.0, 0.0])
 
 
 def test_weighted_avg_uses_extra_weight():
